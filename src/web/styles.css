@@ -20,6 +20,8 @@
   --color-fb-unread: #ff3b30;
   --color-fb-control: light-dark(#f4e9da, rgba(244, 176, 90, 0.14));
   --color-fb-control-text: light-dark(#a4651b, #e6b271);
+  --color-fb-action: light-dark(#c2670f, #f4b05a);
+  --color-fb-action-text: light-dark(#ffffff, #1c1408);
 
   --color-kumo-canvas: var(--color-fb-pane);
   --color-kumo-base: var(--color-fb-pane);

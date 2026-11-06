@@ -1,5 +1,5 @@
 import { Button, Collapsible } from "@cloudflare/kumo";
-import { CaretRightIcon } from "@phosphor-icons/react";
+import { CaretRightIcon, HandPalmIcon } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -140,10 +140,14 @@ export function Transcript({ view, bots, pending, onTakeOver }: { view: BotView;
         {view.partial === null ? null : <BotBubble text={view.partial} />}
         {view.busy && view.partial === null ? <Thinking index={botIndex} /> : null}
         {view.takeover === null ? null : (
-          <div className="fb-bubble flex flex-col gap-2 self-start bg-fb-bot text-fb-text">
-            <span className="font-medium">{view.takeover.site}</span>
-            <span className="text-fb-preview">{view.takeover.reason}</span>
-            <Button size="sm" className="w-fit rounded-full! bg-fb-me! text-fb-me-text!" onClick={onTakeOver}>Open computer</Button>
+          <div className="fb-bubble my-1 flex flex-col gap-2 self-start bg-fb-control p-4 text-fb-text ring-1 ring-fb-action/50">
+            <span className="fb-caption flex items-center gap-1.5 font-semibold text-fb-control-text">
+              <HandPalmIcon size={14} weight="fill" />
+              Needs you
+            </span>
+            <span className="text-[15px] font-semibold leading-5">{view.takeover.site}</span>
+            <span>{view.takeover.reason}</span>
+            <Button size="sm" className="mt-1 w-fit rounded-full! bg-fb-action! font-semibold! text-fb-action-text!" onClick={onTakeOver}>Open computer</Button>
           </div>
         )}
         {view.error === null ? null : <div className="px-3 text-xs leading-4 text-kumo-danger [overflow-wrap:anywhere]">{view.error}</div>}
