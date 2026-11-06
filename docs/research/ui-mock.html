@@ -1,0 +1,846 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>flarebot</title>
+<style>
+:root{--bg:#fff;--side:#fbfbfb;--fg:#141414;--muted:#7b7b7b;--faint:#a3a3a3;--line:#ececec;--line2:#dedede;--bubble:#f2f2f2;--me:#111;--me-fg:#fff;--hover:#f3f3f3;--active:#ededed;--accent:#f26b1d;--control:#f4e9da;--control-fg:#a4651b;--good:#23925a;--bad:#d2402f;--warn:#b7791f;--shadow:0 20px 60px rgba(0,0,0,.18);--scrim:rgba(20,20,20,.28)}
+@media (prefers-color-scheme:dark){:root{--bg:#161616;--side:#1b1b1b;--fg:#f1f1f1;--muted:#9a9a9a;--faint:#6f6f6f;--line:#2a2a2a;--line2:#383838;--bubble:#262626;--me:#f1f1f1;--me-fg:#111;--hover:#242424;--active:#2c2c2c;--control:#3a2c1a;--control-fg:#e6b271;--shadow:0 20px 60px rgba(0,0,0,.6);--scrim:rgba(0,0,0,.55)}}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font:14px/1.42 system-ui,-apple-system,"Segoe UI",Helvetica,Arial,sans-serif;overflow:hidden}
+button,input,select,textarea{font:inherit;color:inherit}
+button{background:none;border:0;padding:0;cursor:pointer}
+svg{display:block}
+.app{display:flex;height:100dvh}
+.side{width:280px;flex:none;background:var(--side);border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+.side-top{height:44px;display:flex;align-items:center;justify-content:space-between;padding:0 12px 0 16px;font-weight:600}
+.icon-btn{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;color:var(--muted)}
+.icon-btn:hover{background:var(--hover);color:var(--fg)}
+.icon-btn.on{background:var(--active);color:var(--fg)}
+.search{margin:0 12px 8px;height:32px;border-radius:10px;background:var(--hover);display:flex;align-items:center;gap:8px;padding:0 10px;color:var(--muted)}
+.search input{flex:1;min-width:0;background:none;border:0;outline:0;font-size:13px;color:var(--fg)}
+.list{flex:1;overflow:auto;padding:0 8px}
+.row{width:100%;height:53px;border-radius:10px;display:flex;align-items:center;gap:8px;padding:0 8px;text-align:left}
+.row:hover{background:var(--hover)}
+.row.on{background:var(--active)}
+.row .txt{flex:1;min-width:0}
+.row .l1{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+.row .name{font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:4px}
+.row .tm{font-size:11px;color:var(--muted);flex:none}
+.row .pv{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .pv.typing{color:var(--accent)}
+.av{position:relative;flex:none}
+.dot{position:absolute;top:-1px;right:-1px;width:9px;height:9px;border-radius:50%;background:var(--bad);border:2px solid var(--side)}
+.star{color:var(--accent);font-size:11px}
+.side-link{margin:0 8px 2px;height:34px;display:flex;align-items:center;gap:10px;padding:0 10px;border-radius:10px;width:calc(100% - 16px);font-size:13px;color:var(--muted);text-align:left}
+.side-link:hover{background:var(--hover);color:var(--fg)}
+.foot{border-top:1px solid var(--line);padding:8px;display:flex;align-items:center;gap:8px}
+.me-btn{display:flex;align-items:center;gap:8px;flex:1;min-width:0;padding:6px;border-radius:10px;text-align:left}
+.me-btn:hover{background:var(--hover)}
+.me-av{width:26px;height:26px;border-radius:50%;background:var(--active);display:grid;place-items:center;font-size:10px;color:var(--muted);flex:none}
+.spend{font-size:11px;color:var(--muted);display:block}
+.main{flex:1;min-width:0;display:flex;position:relative}
+.col{flex:1;min-width:0;display:flex;flex-direction:column}
+.top{height:44px;flex:none;display:flex;align-items:center;gap:8px;padding:0 12px 0 16px;border-bottom:1px solid var(--line)}
+.who{display:flex;align-items:center;gap:8px;font-weight:500;padding:4px 6px;border-radius:8px;min-width:0}
+.who:hover{background:var(--hover)}
+.who span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.who small{color:var(--muted);font-weight:400;font-size:12px}
+.spacer{flex:1}
+.back{display:none}
+.feed{flex:1;overflow:auto;padding:16px 16px 8px}
+.feed-in{max-width:720px;margin:0 auto;display:flex;flex-direction:column;gap:6px}
+.when{align-self:center;color:var(--faint);font-size:11px;margin:10px 0 4px}
+.msg{max-width:78%;padding:7px 12px;border-radius:16px;font-size:13.5px;white-space:pre-wrap;overflow-wrap:anywhere}
+.msg.bot{align-self:flex-start;background:var(--bubble)}
+.msg.me{align-self:flex-end;background:var(--me);color:var(--me-fg)}
+.sender{display:flex;gap:8px;align-items:flex-end;align-self:flex-start;max-width:82%}
+.sender .msg{max-width:100%}
+.sender small{display:block;font-size:11px;color:var(--muted);margin:0 0 2px 12px}
+.check{display:block}
+.cost{align-self:flex-start;font-size:11px;color:var(--faint);padding:0 12px;font-variant-numeric:tabular-nums}
+.tool{align-self:flex-start;display:flex;align-items:center;gap:7px;font-size:12px;color:var(--muted);padding:2px 12px;text-align:left}
+.tool:hover{color:var(--fg)}
+.tool .sp{width:12px;height:12px;border-radius:50%;border:2px solid var(--line2);border-top-color:var(--accent);animation:spin 1s linear infinite;flex:none}
+.tool.open+.tool-list{display:block}
+.tool-list{display:none;align-self:flex-start;margin:0 0 4px 12px;padding-left:10px;border-left:2px solid var(--line);font-size:12px;color:var(--muted)}
+.tool-list div{padding:1px 0}
+@keyframes spin{to{transform:rotate(360deg)}}
+.thinking{align-self:flex-start;display:flex;gap:4px;align-items:center;padding:8px 12px;color:var(--muted);font-size:12px}
+.thinking i{width:7px;height:7px;border-radius:50%;background:var(--accent);opacity:.4;animation:pulse 1.2s infinite}
+.thinking i:nth-child(2){animation-delay:.2s}
+.thinking i:nth-child(3){animation-delay:.4s;margin-right:4px}
+@keyframes pulse{50%{opacity:1}}
+.card{align-self:flex-start;width:min(420px,88%);border:1px solid var(--line2);border-radius:14px;padding:12px;background:var(--bg);margin:4px 0}
+.card h4{margin:0 0 2px;font-size:13px;font-weight:600;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.card p{margin:0 0 10px;font-size:12.5px;color:var(--muted);white-space:pre-wrap}
+.card .body{background:var(--bubble);border-radius:10px;padding:8px 10px;font-size:12.5px;margin:6px 0 10px;white-space:pre-wrap}
+.card .acts{display:flex;gap:6px;flex-wrap:wrap}
+.tag{font-size:10.5px;font-weight:500;padding:2px 7px;border-radius:999px;background:var(--control);color:var(--control-fg);flex:none}
+.tag.ok{background:transparent;color:var(--good);padding:0}
+.tag.no{background:transparent;color:var(--muted);padding:0}
+.btn{height:28px;padding:0 12px;border-radius:999px;background:var(--bubble);font-size:12.5px;font-weight:500;white-space:nowrap}
+.btn:hover{background:var(--active)}
+.btn.pri{background:var(--me);color:var(--me-fg)}
+.btn.pri:hover{opacity:.85}
+.btn.bad{color:var(--bad)}
+.field{width:100%;height:32px;border:1px solid var(--line2);border-radius:10px;background:var(--bg);padding:0 10px;outline:0;margin-bottom:8px;font-size:13px}
+.field:focus{border-color:var(--muted)}
+.compose-wrap{padding:8px 16px calc(14px + env(safe-area-inset-bottom));position:relative}
+.compose{max-width:720px;margin:0 auto;border:1px solid var(--line2);border-radius:20px;display:flex;align-items:flex-end;gap:6px;padding:5px 6px;background:var(--bg)}
+.compose textarea{flex:1;min-width:0;border:0;outline:0;resize:none;background:none;height:26px;max-height:120px;padding:3px 4px;font-size:13.5px;line-height:20px}
+.round{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;flex:none;color:var(--muted)}
+.round:hover{background:var(--hover)}
+.round.send{background:var(--me);color:var(--me-fg)}
+.pop{position:absolute;bottom:58px;left:50%;transform:translateX(-50%);width:min(420px,calc(100% - 32px));background:var(--bg);border:1px solid var(--line2);border-radius:12px;box-shadow:var(--shadow);padding:4px;max-height:240px;overflow:auto}
+.pop button{display:flex;gap:8px;width:100%;align-items:center;padding:7px 8px;border-radius:8px;text-align:left;font-size:13px}
+.pop button:hover{background:var(--hover)}
+.pop small{color:var(--muted);margin-left:auto;font-size:11.5px}
+.panel{width:360px;flex:none;border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0;background:var(--bg)}
+.p-top{height:44px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 8px 0 16px;border-bottom:1px solid var(--line);font-weight:500}
+.p-body{flex:1;overflow:auto;padding:14px}
+.lab{font-size:11.5px;font-weight:600;color:var(--muted);margin:16px 0 6px}
+.lab:first-child{margin-top:0}
+.thumb{display:block;width:100%;border-radius:12px;overflow:hidden;border:1px solid var(--line2);position:relative;text-align:left}
+.thumb .badge{position:absolute;left:8px;bottom:8px;background:rgba(0,0,0,.65);color:#fff;font-size:11px;padding:3px 8px;border-radius:999px;display:flex;gap:5px;align-items:center}
+.live{width:6px;height:6px;border-radius:50%;background:#49d17d}
+.step{display:flex;gap:8px;font-size:12.5px;padding:3px 0;color:var(--muted)}
+.step.now{color:var(--fg)}
+.step b{font-weight:400;flex:1}
+.step time{font-size:11px;color:var(--faint)}
+.file{display:flex;gap:8px;align-items:center;padding:6px 8px;border-radius:8px;font-size:12.5px;width:100%;text-align:left}
+.file:hover{background:var(--hover)}
+.file small{margin-left:auto;color:var(--faint);font-size:11px}
+.tabs{display:flex;gap:2px;padding:8px 10px 0;border-bottom:1px solid var(--line)}
+.tab{padding:6px 10px;border-radius:8px 8px 0 0;font-size:12.5px;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px}
+.tab.on{color:var(--fg);border-bottom-color:var(--fg)}
+.kv{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 0;font-size:13px;border-bottom:1px solid var(--line)}
+.kv:last-child{border-bottom:0}
+.kv small{color:var(--muted);display:block;font-size:11.5px}
+.kv select{background:var(--bubble);border:0;border-radius:8px;height:28px;padding:0 6px;font-size:12.5px;max-width:170px}
+.profile{display:flex;flex-direction:column;align-items:center;gap:6px;padding:6px 0 12px}
+.profile b{font-size:15px;font-weight:600}
+.profile small{color:var(--muted)}
+.seg{display:flex;background:var(--bubble);border-radius:8px;padding:2px;flex:none}
+.seg button{padding:2px 8px;font-size:11.5px;border-radius:6px;color:var(--muted)}
+.seg button.on{background:var(--bg);color:var(--fg);box-shadow:0 1px 2px rgba(0,0,0,.12)}
+.switch{width:32px;height:19px;border-radius:999px;background:var(--line2);position:relative;flex:none;transition:.15s}
+.switch::after{content:"";position:absolute;width:15px;height:15px;left:2px;top:2px;border-radius:50%;background:#fff;transition:.15s}
+.switch.on{background:var(--good)}
+.switch.on::after{left:15px}
+.mem{display:flex;gap:8px;align-items:flex-start;padding:7px 0;font-size:13px;border-bottom:1px solid var(--line)}
+.mem span{flex:1}
+.routine{border:1px solid var(--line2);border-radius:12px;padding:10px;margin-bottom:8px}
+.routine header{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px;font-weight:500}
+.routine small{color:var(--muted);font-size:11.5px;display:block;margin:2px 0 8px}
+.runs{display:flex;gap:3px;margin:8px 0}
+.runs i{width:10px;height:18px;border-radius:3px;background:var(--good);opacity:.75}
+.runs i.f{background:var(--bad)}
+.runs i.d{background:var(--line2);opacity:1}
+.meter{height:6px;background:var(--bubble);border-radius:999px;overflow:hidden;margin:6px 0}
+.meter i{display:block;height:100%;background:var(--accent)}
+.scrim{position:fixed;inset:0;background:var(--scrim);display:grid;place-items:center;z-index:20;padding:16px}
+.modal{background:var(--bg);border-radius:18px;box-shadow:var(--shadow);width:min(460px,100%);max-height:calc(100dvh - 32px);overflow:auto;padding:18px}
+.modal.wide{width:min(560px,100%)}
+.modal h3{margin:0 0 12px;font-size:15px;font-weight:600;display:flex;justify-content:space-between;align-items:center}
+.pick{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+.pick button{border-radius:12px;padding:4px;border:2px solid transparent}
+.pick button.on{border-color:var(--fg)}
+.swatch{width:24px;height:24px;border-radius:50%}
+.app-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line);font-size:13px}
+.app-row:last-child{border-bottom:0}
+.app-ic{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;font-weight:600;font-size:12px;color:#fff;flex:none}
+.app-row .t{flex:1;min-width:0}
+.app-row small{display:block;color:var(--muted);font-size:11.5px}
+.take{width:min(960px,100%);background:var(--bg);border-radius:20px;padding:8px;box-shadow:var(--shadow)}
+.bar{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:5px 5px 5px 10px;border-radius:12px;font-size:12px;margin-bottom:8px;background:var(--bubble);color:var(--muted)}
+.bar.mine{background:var(--control);color:var(--control-fg)}
+.desk{position:relative;aspect-ratio:16/10;border-radius:12px;overflow:hidden;background:radial-gradient(90% 90% at 18% 15%,#ffb36b 0,transparent 55%),radial-gradient(90% 90% at 85% 25%,#2e6f8e 0,transparent 60%),radial-gradient(100% 100% at 60% 100%,#6a2f1a 0,transparent 65%),#1f3a4a}
+.win{position:absolute;background:#fff;color:#222;border-radius:7px;box-shadow:0 8px 24px rgba(0,0,0,.35);overflow:hidden;display:flex;flex-direction:column;font-size:clamp(5px,1.1cqw,12px)}
+.desk{container-type:inline-size}
+.win .tb{height:1.9em;background:#f1f1f1;display:flex;align-items:center;gap:.35em;padding:0 .7em;flex:none}
+.win .tb i{width:.6em;height:.6em;border-radius:50%;background:#cfcfcf}
+.win .url{flex:1;margin-left:.6em;background:#fff;border-radius:99px;padding:0 .8em;color:#777;line-height:1.35em;white-space:nowrap;overflow:hidden}
+.term{left:5%;top:9%;width:38%;height:42%;background:#141414;color:#d5d5d5;font-family:ui-monospace,Menlo,monospace}
+.term .tb{background:#262626}
+.term pre{margin:0;padding:.8em;font:inherit;white-space:pre-wrap;line-height:1.5}
+.brow{left:27%;top:15%;width:66%;height:70%}
+.site{flex:1;display:grid;place-items:center;background:#fafafa}
+.login{width:46%;background:#fff;border:1px solid #e3e3e3;border-radius:.7em;padding:1.4em;display:flex;flex-direction:column;gap:.7em}
+.login b{font-size:1.25em}
+.login span{border:1px solid #d7d7d7;border-radius:.4em;padding:.5em .7em;color:#8a8a8a}
+.login em{font-style:normal;background:#1f5fbf;color:#fff;text-align:center;padding:.55em;border-radius:.4em}
+.dock{position:absolute;bottom:3%;left:50%;transform:translateX(-50%);display:flex;gap:6px;padding:4px;border-radius:10px;background:rgba(255,255,255,.28);backdrop-filter:blur(8px)}
+.dock i{width:clamp(14px,3.4cqw,34px);aspect-ratio:1;border-radius:22%;display:grid;place-items:center;font:600 clamp(7px,1.2cqw,12px) ui-monospace,monospace;color:#fff;font-style:normal}
+.cursor{position:absolute;left:61%;top:56%;display:flex;align-items:flex-start;pointer-events:none;transition:left 1.2s,top 1.2s}
+.cursor span{background:#555;color:#fff;font-size:clamp(6px,1cqw,11px);padding:1px 6px;border-radius:99px;margin:12px 0 0 -2px}
+.toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:var(--me);color:var(--me-fg);padding:7px 14px;border-radius:999px;font-size:12.5px;z-index:40;box-shadow:var(--shadow)}
+.empty{display:grid;place-items:center;height:100%;gap:8px;color:var(--muted);text-align:center}
+@media (max-width:1040px){.panel{position:absolute;right:0;top:0;bottom:0;z-index:10;box-shadow:var(--shadow);width:min(360px,100%)}}
+@media (max-width:720px){
+  .side{width:100%;border-right:0}
+  .main{display:none}
+  body.chat .side{display:none}
+  body.chat .main{display:flex}
+  .back{display:grid}
+  .panel{width:100%}
+  .msg{max-width:86%}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side" id="side"></aside>
+  <main class="main" id="main"></main>
+</div>
+<div id="overlay"></div>
+<div id="toast"></div>
+<script>
+const eyes = '<circle cx="12.5" cy="15" r="2" fill="#fff"/><circle cx="19.5" cy="15" r="2" fill="#fff"/>';
+const shapes = {
+  circle: '<circle cx="16" cy="16" r="15"/>',
+  blob: '<path d="M6 3c7-3 20 2 23 10s1 16-9 17S3 27 2 17 2 5 6 3z"/>',
+  drop: '<path d="M16 1c4 7 13 11 13 19a13 12 0 0 1-26 0C3 12 12 8 16 1z"/>',
+  square: '<rect x="2" y="2" width="28" height="28" rx="10"/>'
+};
+const colors = ["#f26b1d", "#47b39d", "#5b5ce2", "#3f82f0", "#8a5cf0", "#e0528a"];
+
+function avatar(shape, color, size = 32) {
+  return `<svg width="${size}" height="${size}" viewBox="0 0 32 32" fill="${color}" aria-hidden="true">${shapes[shape]}${eyes}</svg>`;
+}
+
+function groupAvatar(members, size = 32) {
+  const small = Math.round(size * 0.56);
+  const places = [[size * 0.22, 0], [0, size * 0.44], [size * 0.44, size * 0.44]];
+  const parts = members.slice(0, 3).map((id, index) => {
+    const bot = botById(id);
+    return `<span style="position:absolute;left:${places[index][0]}px;top:${places[index][1]}px">${avatar(bot.shape, bot.color, small)}</span>`;
+  });
+  return `<span style="position:relative;display:block;width:${size}px;height:${size}px">${parts.join("")}</span>`;
+}
+
+const icon = {
+  plus: '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>',
+  search: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5 14 14"/></svg>',
+  monitor: '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><rect x="1.5" y="2.5" width="13" height="9" rx="1.5"/><path d="M5.5 14h5M8 11.5V14"/></svg>',
+  close: '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="m3 3 8 8M11 3l-8 8"/></svg>',
+  back: '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m10 3-5 5 5 5"/></svg>',
+  mic: '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><rect x="5.5" y="1.5" width="5" height="8.5" rx="2.5"/><path d="M3 8a5 5 0 0 0 10 0M8 13v2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>',
+  up: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5"/></svg>',
+  apps: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="2" width="5" height="5" rx="1.2"/><rect x="9" y="2" width="5" height="5" rx="1.2"/><rect x="2" y="9" width="5" height="5" rx="1.2"/><rect x="9" y="9" width="5" height="5" rx="1.2"/></svg>',
+  doc: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M4 1.5h5L12.5 5v9.5h-8.5z"/><path d="M9 1.5V5h3.5"/></svg>'
+};
+
+const bots = [
+  {
+    id: "flare", name: "Flare", label: "Chief of staff", shape: "drop", color: "#f26b1d", primary: true, time: "9:02 AM", last: "3 things need you today. the renewal is first.",
+    model: "Claude Sonnet 5.5",
+    memory: ["Simon is in London, Europe/London time", "Prefers short, direct updates", "Morning brief goes out at 8:30 on weekdays"],
+    tools: [["Gmail", "Read", "Allow"], ["Gmail", "Send", "Ask"], ["Calendar", "Create events", "Ask"], ["Your Mac", "Run commands", "Ask"], ["Browser", "Purchases", "Never"]],
+    skills: ["Morning brief", "Weekly review"],
+    routines: [{ name: "Morning brief", when: "Weekdays at 8:30", next: "Mon 8:30", on: true, runs: "sssssfsssss" }],
+    messages: [
+      { t: "when", v: "9:00 AM" },
+      { t: "me", v: "what needs me today?" },
+      { t: "tool", v: "Checked Gmail, Calendar and Linear", steps: ["Gmail: 41 unread since Friday", "Calendar: 4 events", "Linear: 2 overdue"] },
+      { t: "bot", v: "3 things need you today. the renewal is first.\n<span class=check>✓ <b>Renewal</b> → contract question from dana, due today</span><span class=check>✓ <b>Invoice</b> → 2 overdue, reminders drafted</span><span class=check>✓ <b>Call prep</b> → 3pm with hannah, notes ready</span>" },
+      { t: "cost", v: "$0.04 · 3 tools" }
+    ]
+  },
+  {
+    id: "inbox", name: "Inbox Manager", label: "Email and calendar", shape: "blob", color: "#5b5ce2", time: "5:37 PM", last: "draft for dana is ready to send.", unread: true,
+    model: "Claude Sonnet 5.5",
+    memory: ["Never archive anything from clients", "Draft replies in Simon's voice", "Newsletters can be archived without asking"],
+    tools: [["Gmail", "Read", "Allow"], ["Gmail", "Draft", "Allow"], ["Gmail", "Send", "Ask"], ["Calendar", "Create events", "Ask"]],
+    skills: ["Inbox sweep"],
+    routines: [
+      { name: "Inbox sweep", when: "Weekdays at 8:00 and 14:00", next: "Today 14:00", on: true, runs: "sssssssssss" },
+      { name: "Friday digest", when: "Fridays at 17:00", next: "Fri 17:00", on: false, runs: "ssfss" }
+    ],
+    messages: [
+      { t: "when", v: "4:37 PM" },
+      { t: "me", v: "inbox got away from me over the weekend, sweep it?" },
+      { t: "bot", v: "on it. <b>41 unread</b> since friday. archiving the noise, drafting the rest." },
+      { t: "when", v: "5:37 PM" },
+      { t: "tool", v: "Used Gmail 58 times", steps: ["Searched 41 threads", "Archived 26", "Replied to 9 routine threads", "Saved 6 drafts"] },
+      { t: "bot", v: "<span class=check>✓ <b>Archived</b> → 26 newsletters and receipts</span><span class=check>✓ <b>Replied</b> → 9 routine threads</span><span class=check>✓ <b>Drafted</b> → 6 held for your read</span><span class=check>✓ <b>Flagged</b> → 1 contract question from dana</span>" },
+      { t: "bot", v: "dana's asking whether the renewal covers the new seats. draft below." },
+      { t: "draft", id: "dana", to: "dana@example.com", subject: "Re: Renewal and new seats", body: "Hi Dana,\n\nYes, the renewal covers the new seats from the start of the next term. Clause 4.2 has the details.\n\nSimon", state: "open" },
+      { t: "cost", v: "$0.31 · 58 tools" }
+    ]
+  },
+  {
+    id: "research", name: "Research", label: "Companies and markets", shape: "circle", color: "#47b39d", time: "2:14 PM", last: "needs you to sign in to continue.", unread: true, computer: true,
+    model: "Claude Opus 5.5",
+    memory: ["Cite every number with its source", "Reports go in Library as pages"],
+    tools: [["Browser", "Browse", "Allow"], ["Browser", "Sign in", "Ask"], ["Exa", "Search", "Allow"], ["Files", "Write", "Allow"]],
+    skills: ["Company profile", "Competitor scan"],
+    routines: [{ name: "Competitor scan", when: "Mondays at 9:00", next: "Mon 9:00", on: true, runs: "ssssf" }],
+    messages: [
+      { t: "when", v: "2:02 PM" },
+      { t: "me", v: "pull filings for the three shortlisted companies and compare margins" },
+      { t: "bot", v: "on it. starting with public filings." },
+      { t: "tool", v: "Working on the computer", live: true, steps: ["Opened Chrome", "Searched filings registry", "Downloaded 2 of 3 accounts"] },
+      { t: "blocked", id: "login", site: "Filings Portal", state: "open" }
+    ]
+  },
+  {
+    id: "ops", name: "Ops", label: "Infrastructure", shape: "square", color: "#3f82f0", time: "11:20 AM", last: "paste the deploy token and i'll carry on.",
+    model: "Claude Sonnet 5.5",
+    memory: ["Production deploys need approval", "Staging can be deployed freely"],
+    tools: [["Your Mac", "Run commands", "Ask"], ["GitHub", "Read", "Allow"], ["GitHub", "Merge", "Ask"], ["Terminal", "Run commands", "Allow"]],
+    skills: ["Deploy staging"],
+    routines: [{ name: "Uptime check", when: "Every hour", next: "In 12 min", on: true, runs: "sssssssssfs" }],
+    messages: [
+      { t: "when", v: "11:18 AM" },
+      { t: "me", v: "deploy the new worker to staging" },
+      { t: "tool", v: "Ran 4 commands", steps: ["git pull", "bun install", "bun run check", "wrangler deploy (blocked: no token)"] },
+      { t: "bot", v: "checks pass. paste the deploy token and i'll carry on." },
+      { t: "secret", id: "token", name: "CLOUDFLARE_API_TOKEN", state: "open" },
+      { t: "cost", v: "$0.02 · 4 tools" }
+    ]
+  },
+  {
+    id: "talent", name: "Talent Scout", label: "Hiring", shape: "blob", color: "#8a5cf0", time: "Yesterday", last: "3 intros drafted, held for your read.",
+    model: "Claude Sonnet 5.5",
+    memory: ["Looking for a senior engineer in the UK"],
+    tools: [["Browser", "Browse", "Allow"], ["Gmail", "Draft", "Allow"], ["Gmail", "Send", "Never"]],
+    skills: [],
+    routines: [],
+    messages: [
+      { t: "when", v: "Yesterday" },
+      { t: "me", v: "find senior engineers who've built on workers" },
+      { t: "bot", v: "3 intros drafted, held for your read." },
+      { t: "cost", v: "$0.18 · 22 tools" }
+    ]
+  }
+];
+
+const groups = [
+  {
+    id: "launch", name: "Launch crew", group: true, members: ["flare", "research", "ops"], time: "Yesterday", last: "that leaves the pipeline. i'll spin up the checks.",
+    messages: [
+      { t: "when", v: "Yesterday" },
+      { t: "me", v: "@everyone what's left before launch?" },
+      { t: "gbot", by: "flare", v: "i'll own this. research checks the pricing page, ops checks the deploy." },
+      { t: "gbot", by: "research", v: "pricing page matches the plan. 1 stale screenshot." },
+      { t: "gbot", by: "ops", v: "that leaves the pipeline. i'll spin up the checks." },
+      { t: "cost", v: "$0.09 · 3 replies" }
+    ]
+  }
+];
+
+const apps = [
+  { id: "gmail", name: "Gmail", detail: "2 accounts", color: "#d9503f", on: true },
+  { id: "calendar", name: "Google Calendar", detail: "1 account", color: "#3f82f0", on: true },
+  { id: "github", name: "GitHub", detail: "simonbalfe", color: "#333", on: true },
+  { id: "slack", name: "Slack", detail: "", color: "#6a2a84", on: false },
+  { id: "linear", name: "Linear", detail: "1 workspace", color: "#5b5ce2", on: true },
+  { id: "notion", name: "Notion", detail: "", color: "#555", on: false }
+];
+
+const mcps = [
+  { name: "exa", detail: "6 tools" },
+  { name: "ohm", detail: "12 tools" }
+];
+
+const state = { current: "inbox", panel: null, tab: "details", search: "", drafts: {}, overlay: null, control: "agent", newBot: { shape: "drop", color: "#f26b1d", name: "" } };
+
+const esc = (text) => String(text).replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
+const botById = (id) => bots.find((bot) => bot.id === id);
+const chatById = (id) => botById(id) || groups.find((group) => group.id === id);
+const currentChat = () => chatById(state.current);
+const chatAvatar = (chat, size) => (chat.group ? groupAvatar(chat.members, size) : avatar(chat.shape, chat.color, size));
+
+function renderSidebar() {
+  const term = state.search.toLowerCase();
+  const rows = [...bots, ...groups].filter((chat) => `${chat.name} ${chat.last}`.toLowerCase().includes(term)).map((chat) => `
+    <button class="row ${chat.id === state.current ? "on" : ""}" data-open="${chat.id}">
+      <span class="av">${chatAvatar(chat, 32)}${chat.unread ? '<i class="dot"></i>' : ""}</span>
+      <span class="txt">
+        <span class="l1"><span class="name">${esc(chat.name)}${chat.primary ? '<span class="star">★</span>' : ""}</span><span class="tm">${chat.time}</span></span>
+        <span class="pv ${chat.typing ? "typing" : ""}" style="display:block">${chat.typing ? "Typing…" : esc(chat.last)}</span>
+      </span>
+    </button>`).join("");
+  document.getElementById("side").innerHTML = `
+    <div class="side-top"><span>flarebot</span><button class="icon-btn" data-act="new" aria-label="New">${icon.plus}</button></div>
+    <label class="search">${icon.search}<input id="search" placeholder="Search" value="${esc(state.search)}" aria-label="Search chats"></label>
+    <div class="list">${rows}</div>
+    <button class="side-link" data-act="apps">${icon.apps} Connect apps</button>
+    <div class="foot">
+      <button class="me-btn" data-act="settings"><span class="me-av">SB</span><span style="min-width:0"><span style="font-size:13px">Simon Balfe</span><span class="spend">$12.40 of $40 this week</span></span></button>
+    </div>`;
+}
+
+function renderMessage(message, chat) {
+  switch (message.t) {
+    case "when": return `<div class="when">${message.v}</div>`;
+    case "me": return `<div class="msg me">${esc(message.v)}</div>`;
+    case "bot": return `<div class="msg bot">${message.v}</div>`;
+    case "gbot": {
+      const bot = botById(message.by);
+      return `<div class="sender">${avatar(bot.shape, bot.color, 24)}<div><small>${bot.name}</small><div class="msg bot">${esc(message.v)}</div></div></div>`;
+    }
+    case "cost": return `<div class="cost">${message.v}</div>`;
+    case "tool": return `<button class="tool" data-act="toggle-tool">${message.live ? '<i class="sp"></i>' : "▸"} ${message.v}</button><div class="tool-list">${message.steps.map((step) => `<div>${esc(step)}</div>`).join("")}</div>`;
+    case "draft": return renderDraft(message);
+    case "blocked": return renderBlocked(message);
+    case "secret": return renderSecret(message);
+    case "connect": return `<div class="card"><h4>${message.app}${message.state === "done" ? '<span class="tag ok">Connected</span>' : ""}</h4>${message.state === "done" ? "" : `<div class="acts"><button class="btn pri" data-connect-card="${chat.id}">Connect</button></div>`}</div>`;
+    default: return "";
+  }
+}
+
+function renderDraft(message) {
+  const status = message.state === "sent" ? '<span class="tag ok">Sent</span>' : message.state === "discarded" ? '<span class="tag no">Discarded</span>' : '<span class="tag">Needs approval</span>';
+  const actions = message.state === "open" ? `<div class="acts"><button class="btn pri" data-draft="send">Send</button><button class="btn" data-draft="discard">Discard</button></div>` : "";
+  return `<div class="card"><h4>${esc(message.subject)}${status}</h4><p style="margin-bottom:0">To ${esc(message.to)}</p><div class="body">${esc(message.body)}</div>${actions}</div>`;
+}
+
+function renderBlocked(message) {
+  if (message.state === "done") return `<div class="card"><h4>${message.site}<span class="tag ok">Signed in</span></h4></div>`;
+  return `<div class="card"><h4>${message.site}<span class="tag">Sign in needed</span></h4><div class="acts" style="margin-top:8px"><button class="btn pri" data-act="take">Open computer</button></div></div>`;
+}
+
+function renderSecret(message) {
+  if (message.state === "done") return `<div class="card"><h4>${message.name}<span class="tag ok">Saved</span></h4></div>`;
+  return `<div class="card"><h4>${message.name}<span class="tag">Secure form</span></h4><input class="field" id="secret" type="password" autocomplete="off" aria-label="${message.name}" style="margin-top:8px"><div class="acts"><button class="btn pri" data-act="save-secret">Save</button><button class="btn" data-act="skip-secret">Skip</button></div></div>`;
+}
+
+function popover(text) {
+  const chat = currentChat();
+  if (text.startsWith("/")) {
+    const skills = chat.group ? [] : chat.skills;
+    if (skills.length === 0) return "";
+    return `<div class="pop">${skills.map((skill) => `<button data-insert="/${esc(skill)} ">${esc(skill)}<small>Skill</small></button>`).join("")}</div>`;
+  }
+  const at = text.match(/(^|\s)@(\w*)$/);
+  if (at) {
+    const term = at[2].toLowerCase();
+    const options = [...bots.map((bot) => [bot.name, "Bot"]), ...apps.filter((app) => app.on).map((app) => [app.name, "App"]), ["everyone", "Group"]].filter(([name]) => name.toLowerCase().includes(term));
+    if (options.length === 0) return "";
+    return `<div class="pop">${options.map(([name, kind]) => `<button data-mention="${esc(name)}">${esc(name)}<small>${kind}</small></button>`).join("")}</div>`;
+  }
+  return "";
+}
+
+function renderMain() {
+  const chat = currentChat();
+  const typing = chat.typing ? '<div class="thinking"><i></i><i></i><i></i>Thinking</div>' : "";
+  const draft = state.drafts[chat.id] || "";
+  document.getElementById("main").innerHTML = `
+    <div class="col">
+    <div class="top">
+      <button class="icon-btn back" data-act="back" aria-label="Back">${icon.back}</button>
+      <button class="who" data-act="details">${chatAvatar(chat, 22)}<span>${esc(chat.name)}</span>${chat.label ? `<small>${esc(chat.label)}</small>` : ""}</button>
+      <span class="spacer"></span>
+      <button class="icon-btn ${state.panel === "computer" ? "on" : ""}" data-act="computer" aria-label="Computer">${icon.monitor}</button>
+    </div>
+    <div class="feed" id="feed"><div class="feed-in">${chat.messages.map((message) => renderMessage(message, chat)).join("")}${typing}</div></div>
+    <div class="compose-wrap">
+      <div id="pop">${popover(draft)}</div>
+      <div class="compose">
+        <button class="round" data-act="attach" aria-label="Attach">${icon.plus}</button>
+        <textarea id="box" rows="1" placeholder="Message ${esc(chat.name)}" aria-label="Message">${esc(draft)}</textarea>
+        <button class="round send" id="sendBtn" data-act="${draft.trim() ? "send" : "voice"}" aria-label="${draft.trim() ? "Send" : "Voice"}">${draft.trim() ? icon.up : icon.mic}</button>
+      </div>
+    </div>
+    </div>
+    ${state.panel ? renderPanel() : ""}`;
+  const feed = document.getElementById("feed");
+  feed.scrollTop = feed.scrollHeight;
+}
+
+function desktop(cursorLabel, withCursor) {
+  return `<div class="desk">
+    <div class="win term"><div class="tb"><i></i><i></i><i></i></div><pre>$ ls /workspace/filings
+acme-2025.pdf
+northwind-2025.pdf
+$ _</pre></div>
+    <div class="win brow"><div class="tb"><i></i><i></i><i></i><span class="url">portal.filings.example/sign-in</span></div>
+      <div class="site"><div class="login"><b>Filings Portal</b><span>Email</span><span>Password</span><em>Sign in</em></div></div>
+    </div>
+    <div class="dock"><i style="background:#222">&gt;_</i><i style="background:#3f82f0">◎</i><i style="background:#47b39d">▤</i></div>
+    ${withCursor ? `<div class="cursor"><svg width="14" height="16" viewBox="0 0 14 16"><path d="M1 1v12l3.2-2.8L6.5 15l2-1-2.2-4.6H11z" fill="#111" stroke="#fff"/></svg><span>${cursorLabel}</span></div>` : ""}
+  </div>`;
+}
+
+function renderPanel() {
+  const chat = currentChat();
+  if (state.panel === "computer") {
+    return `<aside class="panel">
+      <div class="p-top"><span>Computer</span><button class="icon-btn" data-act="close-panel" aria-label="Close">${icon.close}</button></div>
+      <div class="p-body">
+        <button class="thumb" data-act="take" aria-label="Open computer">${desktop(chat.name, true)}<span class="badge"><i class="live"></i>${chat.computer ? "Waiting for you" : "Idle"}</span></button>
+        <div class="lab">Activity</div>
+        <div class="step now"><b>Waiting at sign in</b><time>now</time></div>
+        <div class="step"><b>Downloaded northwind-2025.pdf</b><time>2m</time></div>
+        <div class="step"><b>Downloaded acme-2025.pdf</b><time>4m</time></div>
+        <div class="step"><b>Opened Chrome</b><time>8m</time></div>
+        <div class="lab">Files</div>
+        <button class="file" data-toast="Opened">${icon.doc} acme-2025.pdf<small>2.1 MB</small></button>
+        <button class="file" data-toast="Opened">${icon.doc} northwind-2025.pdf<small>1.8 MB</small></button>
+        <div class="lab">Machine</div>
+        <div class="kv"><span>State</span><span>Running</span></div>
+        <div class="kv"><span>Sleeps after</span><span>10 min idle</span></div>
+        <div class="kv"><span>Cost today</span><span>$0.12</span></div>
+      </div>
+    </aside>`;
+  }
+  if (chat.group) {
+    return `<aside class="panel"><div class="p-top"><span>Group</span><button class="icon-btn" data-act="close-panel" aria-label="Close">${icon.close}</button></div>
+      <div class="p-body"><div class="lab">Members</div>${chat.members.map((id) => { const bot = botById(id); return `<button class="file" data-open="${id}">${avatar(bot.shape, bot.color, 22)} ${bot.name}<small>${bot.label}</small></button>`; }).join("")}</div></aside>`;
+  }
+  const tabs = [["details", "Details"], ["memory", "Memory"], ["tools", "Tools"], ["routines", "Routines"]];
+  return `<aside class="panel">
+    <div class="p-top"><span>${esc(chat.name)}</span><button class="icon-btn" data-act="close-panel" aria-label="Close">${icon.close}</button></div>
+    <div class="tabs">${tabs.map(([id, label]) => `<button class="tab ${state.tab === id ? "on" : ""}" data-tab="${id}">${label}</button>`).join("")}</div>
+    <div class="p-body">${renderTab(chat)}</div>
+  </aside>`;
+}
+
+function renderTab(chat) {
+  if (state.tab === "memory") {
+    return `${chat.memory.map((item, index) => `<div class="mem"><span>${esc(item)}</span><button class="icon-btn" data-forget="${index}" aria-label="Forget">${icon.close}</button></div>`).join("") || '<div class="empty" style="height:120px">No memories</div>'}
+      <input class="field" id="memory" placeholder="Add a memory" aria-label="Add a memory" style="margin-top:12px">`;
+  }
+  if (state.tab === "tools") {
+    return chat.tools.map(([app, action, policy], index) => `<div class="kv"><span>${esc(action)}<small>${esc(app)}</small></span><span class="seg">${["Allow", "Ask", "Never"].map((option) => `<button class="${policy === option ? "on" : ""}" data-policy="${index}:${option}">${option}</button>`).join("")}</span></div>`).join("");
+  }
+  if (state.tab === "routines") {
+    return (chat.routines.map((routine, index) => `<div class="routine">
+      <header><span>${esc(routine.name)}</span><button class="switch ${routine.on ? "on" : ""}" data-routine-toggle="${index}" aria-label="Active"></button></header>
+      <small>${esc(routine.when)} · Next ${esc(routine.next)}</small>
+      <div class="runs">${[...routine.runs].map((run) => `<i class="${run === "f" ? "f" : run === "d" ? "d" : ""}"></i>`).join("")}</div>
+      <div class="acts" style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn" data-dry="${index}">Dry run</button><button class="btn" data-test="${index}">Test</button><button class="btn" data-toast="Editing in chat">Edit</button><button class="btn bad" data-routine-del="${index}">Delete</button></div>
+    </div>`).join("") || '<div class="empty" style="height:120px">No routines</div>');
+  }
+  return `<div class="profile">${avatar(chat.shape, chat.color, 64)}<b>${esc(chat.name)}${chat.primary ? ' <span class="star">★</span>' : ""}</b><small>${esc(chat.label)}</small></div>
+    <div class="kv"><span>Model</span><select aria-label="Model">${["Claude Sonnet 5.5", "Claude Opus 5.5", "Claude Haiku 5.5", "GPT-6", "Grok 4.6"].map((model) => `<option ${model === chat.model ? "selected" : ""}>${model}</option>`).join("")}</select></div>
+    <div class="kv"><span>Browser profile</span><span style="color:var(--muted)">${esc(chat.name)}</span></div>
+    <div class="kv"><span>Notifications</span><select aria-label="Notifications"><option>Questions and failures</option><option>Everything</option><option>Off</option></select></div>
+    <div class="kv"><span>This week</span><span style="color:var(--muted)">$${chat.id === "inbox" ? "4.12" : "1.86"}</span></div>
+    <div class="lab">Skills</div>
+    ${chat.skills.map((skill) => `<button class="file" data-toast="Opened">${icon.doc} ${esc(skill)}</button>`).join("") || '<div style="color:var(--muted);font-size:12.5px">None</div>'}
+    <div class="lab">Files</div>
+    <button class="file" data-toast="Opened">${icon.doc} notes.md<small>Library</small></button>
+    <div class="acts" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:16px"><button class="btn" data-toast="Hidden from sidebar">Hide</button><button class="btn" data-toast="Link copied">Share</button><button class="btn bad" data-toast="Needs confirmation">Delete</button></div>`;
+}
+
+function renderOverlay() {
+  const host = document.getElementById("overlay");
+  if (!state.overlay) { host.innerHTML = ""; return; }
+  if (state.overlay === "take") {
+    const mine = state.control === "you";
+    const chat = currentChat();
+    host.innerHTML = `<div class="scrim"><div class="take">
+      <div class="bar ${mine ? "mine" : ""}"><span>${mine ? "You're in control" : `${esc(chat.name)} is in control`}</span>
+        ${mine ? '<button class="btn pri" data-act="done">I\'m done, continue</button>' : '<span style="display:flex;gap:6px"><button class="btn pri" data-act="grab">Take over</button><button class="btn" data-act="close-overlay">Close</button></span>'}
+      </div>
+      ${desktop(mine ? "You" : chat.name, true)}
+    </div></div>`;
+    return;
+  }
+  if (state.overlay === "new") {
+    const draft = state.newBot;
+    host.innerHTML = `<div class="scrim"><div class="modal">
+      <h3>Create New Bot<button class="icon-btn" data-act="close-overlay" aria-label="Close">${icon.close}</button></h3>
+      <div style="display:grid;place-items:center;margin-bottom:12px">${avatar(draft.shape, draft.color, 64)}</div>
+      <input class="field" id="botName" placeholder="Name" aria-label="Name" value="${esc(draft.name)}">
+      <div class="pick">${Object.keys(shapes).map((shape) => `<button class="${draft.shape === shape ? "on" : ""}" data-shape="${shape}" aria-label="${shape}">${avatar(shape, draft.color, 28)}</button>`).join("")}</div>
+      <div class="pick">${colors.map((color) => `<button class="${draft.color === color ? "on" : ""}" data-color="${color}" aria-label="${color}"><span class="swatch" style="display:block;background:${color}"></span></button>`).join("")}</div>
+      <div style="display:flex;justify-content:flex-end;gap:6px"><button class="btn" data-act="close-overlay">Cancel</button><button class="btn pri" data-act="create">Create</button></div>
+    </div></div>`;
+    return;
+  }
+  if (state.overlay === "apps") {
+    host.innerHTML = `<div class="scrim"><div class="modal wide">
+      <h3>Connect apps<button class="icon-btn" data-act="close-overlay" aria-label="Close">${icon.close}</button></h3>
+      <div class="lab">Apps</div>
+      ${apps.map((app, index) => `<div class="app-row"><span class="app-ic" style="background:${app.color}">${app.name[0]}</span><span class="t">${esc(app.name)}<small>${esc(app.detail)}</small></span><button class="btn ${app.on ? "" : "pri"}" data-app="${index}">${app.on ? "Add account" : "Connect"}</button></div>`).join("")}
+      <div class="lab">MCP servers</div>
+      ${mcps.map((mcp) => `<div class="app-row"><span class="app-ic" style="background:#333">M</span><span class="t">${esc(mcp.name)}<small>${esc(mcp.detail)}</small></span><button class="btn" data-toast="Tools opened">Tools</button></div>`).join("")}
+      <div class="app-row"><span class="t"></span><button class="btn" data-toast="Add MCP server">Add server</button></div>
+      <div class="lab">Computers</div>
+      <div class="app-row"><span class="app-ic" style="background:#f26b1d">C</span><span class="t">Cloud computer<small>Sleeping</small></span><button class="btn" data-toast="Waking">Wake</button></div>
+      <div class="app-row"><span class="app-ic" style="background:#555">M</span><span class="t">Simon's Mac<small>Online · flarebot-local</small></span><span class="seg"><button data-toast="Always allow">Always</button><button class="on" data-toast="Ask every time">Ask</button><button data-toast="Never allow">Never</button></span></div>
+    </div></div>`;
+    return;
+  }
+  if (state.overlay === "settings") {
+    host.innerHTML = `<div class="scrim"><div class="modal wide">
+      <h3>Settings<button class="icon-btn" data-act="close-overlay" aria-label="Close">${icon.close}</button></h3>
+      <div class="lab">Usage this week</div>
+      <div class="meter"><i style="width:31%"></i></div>
+      <div class="kv"><span>Spent</span><span>$12.40 of $40</span></div>
+      ${bots.slice(0, 4).map((bot, index) => `<div class="kv"><span style="display:flex;gap:8px;align-items:center">${avatar(bot.shape, bot.color, 20)}${bot.name}</span><span style="color:var(--muted)">$${["2.90", "4.12", "3.52", "1.86"][index]}</span></div>`).join("")}
+      <div class="kv"><span>Computer</span><span style="color:var(--muted)">$0.84</span></div>
+      <div class="kv"><span>Weekly budget</span><select aria-label="Weekly budget"><option>$40</option><option>$80</option><option>$150</option></select></div>
+      <div class="lab">Vault</div>
+      <div class="app-row"><span class="app-ic" style="background:#47b39d">G</span><span class="t">github.com<small>Ops</small></span><button class="btn" data-toast="Edit access">Bots</button></div>
+      <div class="app-row"><span class="app-ic" style="background:#3f82f0">F</span><span class="t">portal.filings.example<small>Research</small></span><button class="btn" data-toast="Edit access">Bots</button></div>
+      <div class="lab">Action log</div>
+      <div class="step"><b>Inbox Manager saved 6 Gmail drafts</b><time>5:37 PM</time></div>
+      <div class="step"><b>Ops ran wrangler deploy on the computer</b><time>11:20 AM</time></div>
+      <div class="step"><b>Flare read 41 Gmail threads</b><time>9:00 AM</time></div>
+    </div></div>`;
+  }
+}
+
+function render() {
+  renderSidebar();
+  renderMain();
+  renderOverlay();
+}
+
+function toast(text) {
+  const host = document.getElementById("toast");
+  host.innerHTML = `<div class="toast">${esc(text)}</div>`;
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => { host.innerHTML = ""; }, 1600);
+}
+
+function replyFor(text, wasBusy) {
+  const lower = text.toLowerCase();
+  if (lower.includes("stop")) return "stopped. nothing after the last step ran.";
+  const prefix = wasBusy ? "switching to that now. " : "";
+  if (lower.includes("remember")) return `${prefix}saved to memory.`;
+  if (lower.includes("routine") || lower.includes("every")) return `${prefix}routine set up. check the schedule under routines, and run a dry run first.`;
+  return `${prefix}on it. i'll message you when it's done, or if i need you.`;
+}
+
+function appendBot(chat, html, plainText, cost) {
+  chat.messages.push({ t: "bot", v: html });
+  if (cost) chat.messages.push({ t: "cost", v: cost });
+  chat.last = plainText;
+  chat.time = "now";
+}
+
+function send() {
+  const chat = currentChat();
+  const text = (state.drafts[chat.id] || "").trim();
+  if (!text) return;
+  state.drafts[chat.id] = "";
+  const wasBusy = Boolean(chat.typing);
+  chat.messages.push({ t: "me", v: text });
+  chat.last = text;
+  chat.time = "now";
+  chat.typing = true;
+  render();
+  document.getElementById("box").focus();
+  clearTimeout(chat.timer);
+  chat.timer = setTimeout(() => {
+    chat.typing = false;
+    const reply = replyFor(text, wasBusy);
+    if (chat.group) {
+      chat.messages.push({ t: "gbot", by: chat.members[0], v: reply });
+      chat.messages.push({ t: "cost", v: "$0.01 · 1 reply" });
+      chat.last = reply;
+    } else {
+      appendBot(chat, esc(reply), reply, "$0.01");
+    }
+    render();
+  }, 1300);
+}
+
+function openChat(id) {
+  state.current = id;
+  const chat = currentChat();
+  chat.unread = false;
+  document.body.classList.add("chat");
+  if (state.panel === "computer" && !chat.computer) state.panel = null;
+  if (state.panel === "details" && chat.group) state.panel = null;
+  render();
+}
+
+function draftMessage() {
+  return currentChat().messages.find((message) => message.t === "draft");
+}
+
+const actions = {
+  new() { state.newBot = { shape: "drop", color: "#f26b1d", name: "" }; state.overlay = "new"; renderOverlay(); },
+  apps() { state.overlay = "apps"; renderOverlay(); },
+  settings() { state.overlay = "settings"; renderOverlay(); },
+  "close-overlay"() { state.overlay = null; state.control = "agent"; renderOverlay(); },
+  details() { state.panel = state.panel === "details" ? null : "details"; state.tab = "details"; renderMain(); },
+  computer() { state.panel = state.panel === "computer" ? null : "computer"; renderMain(); },
+  "close-panel"() { state.panel = null; renderMain(); },
+  back() { document.body.classList.remove("chat"); },
+  attach() { toast("Choose a file"); },
+  voice() { toast("Voice chat"); },
+  send,
+  take() {
+    const blocked = currentChat().messages.find((message) => message.t === "blocked" && message.state === "open");
+    state.control = blocked ? "you" : "agent";
+    state.overlay = "take";
+    renderOverlay();
+  },
+  grab() { state.control = "you"; renderOverlay(); },
+  done() {
+    const chat = currentChat();
+    state.overlay = null;
+    state.control = "agent";
+    const blocked = chat.messages.find((message) => message.t === "blocked" && message.state === "open");
+    if (blocked) {
+      blocked.state = "done";
+      chat.messages.forEach((message) => { if (message.live) message.live = false; });
+      chat.computer = false;
+      chat.typing = true;
+      render();
+      setTimeout(() => {
+        chat.typing = false;
+        appendBot(chat, "thanks, i'm in. 3 of 3 accounts pulled.\n<span class=check>✓ <b>Acme</b> → 34% gross margin</span><span class=check>✓ <b>Northwind</b> → 28% gross margin</span><span class=check>✓ <b>Globex</b> → 41% gross margin</span>", "3 of 3 accounts pulled.", "$0.22 · 31 tools");
+        render();
+      }, 1300);
+    } else {
+      render();
+    }
+  },
+  "save-secret"() {
+    const input = document.getElementById("secret");
+    if (!input.value) return;
+    const chat = currentChat();
+    chat.messages.find((message) => message.t === "secret").state = "done";
+    chat.typing = true;
+    render();
+    setTimeout(() => {
+      chat.typing = false;
+      appendBot(chat, "deployed to staging. <b>all checks green.</b>", "deployed to staging.", "$0.03 · 2 tools");
+      render();
+    }, 1200);
+  },
+  "skip-secret"() {
+    const chat = currentChat();
+    chat.messages.find((message) => message.t === "secret").state = "done";
+    appendBot(chat, "ok, leaving staging as is.", "ok, leaving staging as is.");
+    render();
+  },
+  "toggle-tool"(element) { element.classList.toggle("open"); },
+  create() {
+    const name = (document.getElementById("botName").value || "").trim() || "New Bot";
+    const id = `bot${Date.now()}`;
+    const draft = state.newBot;
+    bots.splice(1, 0, { id, name, label: "Add a label", shape: draft.shape, color: draft.color, time: "now", last: "what's my job?", model: "Claude Sonnet 5.5", memory: [], tools: [["Browser", "Browse", "Allow"], ["Browser", "Sign in", "Ask"]], skills: [], routines: [], messages: [{ t: "when", v: "now" }, { t: "bot", v: "hi, i'm " + esc(name) + ". what's my job?" }] });
+    state.overlay = null;
+    openChat(id);
+    document.getElementById("box").focus();
+  }
+};
+
+document.addEventListener("click", (event) => {
+  const element = event.target.closest("button");
+  if (!element) return;
+  const data = element.dataset;
+  if (data.act) { actions[data.act](element); return; }
+  if (data.open) { openChat(data.open); return; }
+  if (data.tab) { state.tab = data.tab; renderMain(); return; }
+  if (data.toast) { toast(data.toast); return; }
+  if (data.draft) {
+    const message = draftMessage();
+    const chat = currentChat();
+    message.state = data.draft === "send" ? "sent" : "discarded";
+    if (data.draft === "send") appendBot(chat, "sent. inbox is at <b>zero</b>, with 5 drafts parked for tomorrow.", "sent. inbox is at zero.", "$0.01");
+    render();
+    return;
+  }
+  if (data.forget !== undefined) { currentChat().memory.splice(Number(data.forget), 1); renderMain(); return; }
+  if (data.policy) {
+    const [index, option] = data.policy.split(":");
+    currentChat().tools[Number(index)][2] = option;
+    renderMain();
+    return;
+  }
+  if (data.routineToggle !== undefined) {
+    const routine = currentChat().routines[Number(data.routineToggle)];
+    routine.on = !routine.on;
+    renderMain();
+    return;
+  }
+  if (data.routineDel !== undefined) { currentChat().routines.splice(Number(data.routineDel), 1); renderMain(); return; }
+  if (data.dry !== undefined) {
+    const chat = currentChat();
+    const routine = chat.routines[Number(data.dry)];
+    routine.runs += "d";
+    chat.messages.push({ t: "tool", v: `Dry run of ${routine.name}`, steps: ["Read inputs", "No writes sent", "2 actions held as drafts"] });
+    appendBot(chat, `dry run of ${esc(routine.name).toLowerCase()} done. nothing sent, <b>2 actions</b> would have gone out.`, "dry run done.", "$0.02");
+    renderMain();
+    renderSidebar();
+    return;
+  }
+  if (data.test !== undefined) {
+    const chat = currentChat();
+    const routine = chat.routines[Number(data.test)];
+    routine.runs += "s";
+    appendBot(chat, `test run of ${esc(routine.name).toLowerCase()} finished.`, "test run finished.", "$0.05");
+    renderMain();
+    renderSidebar();
+    return;
+  }
+  if (data.app !== undefined) {
+    const app = apps[Number(data.app)];
+    if (!app.on) { app.on = true; app.detail = "1 account"; renderOverlay(); }
+    else toast("Add account");
+    return;
+  }
+  if (data.shape) { state.newBot.name = document.getElementById("botName").value; state.newBot.shape = data.shape; renderOverlay(); return; }
+  if (data.color) { state.newBot.name = document.getElementById("botName").value; state.newBot.color = data.color; renderOverlay(); return; }
+  if (data.insert) {
+    state.drafts[state.current] = data.insert;
+    renderMain();
+    document.getElementById("box").focus();
+    return;
+  }
+  if (data.mention) {
+    const chat = state.current;
+    state.drafts[chat] = (state.drafts[chat] || "").replace(/@\w*$/, `@${data.mention} `);
+    renderMain();
+    document.getElementById("box").focus();
+  }
+});
+
+document.addEventListener("input", (event) => {
+  const target = event.target;
+  if (target.id === "search") {
+    state.search = target.value;
+    const position = target.selectionStart;
+    renderSidebar();
+    const next = document.getElementById("search");
+    next.focus();
+    next.setSelectionRange(position, position);
+  }
+  if (target.id === "box") {
+    state.drafts[state.current] = target.value;
+    target.style.height = "26px";
+    target.style.height = `${Math.min(target.scrollHeight, 120)}px`;
+    document.getElementById("pop").innerHTML = popover(target.value);
+    const button = document.getElementById("sendBtn");
+    const ready = target.value.trim() !== "";
+    button.dataset.act = ready ? "send" : "voice";
+    button.innerHTML = ready ? icon.up : icon.mic;
+    button.setAttribute("aria-label", ready ? "Send" : "Voice");
+  }
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.target.id === "box" && event.key === "Enter" && !event.shiftKey) {
+    event.preventDefault();
+    send();
+  }
+  if (event.target.id === "memory" && event.key === "Enter" && event.target.value.trim()) {
+    currentChat().memory.push(event.target.value.trim());
+    renderMain();
+  }
+  if (event.key === "Escape" && state.overlay && state.control !== "you") actions["close-overlay"]();
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "n") {
+    event.preventDefault();
+    actions.new();
+  }
+});
+
+render();
+document.body.classList.remove("chat");
+</script>
+</body>
+</html>

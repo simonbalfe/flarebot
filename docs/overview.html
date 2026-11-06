@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>flarebot overview</title>
+<style>
+:root{--bg:#f7f6f2;--card:#fff;--fg:#1d1c19;--muted:#6a675f;--line:#cfccc3;--accent:#d9580d;--accent-soft:#fdeee3;--blue:#2b63c6;--blue-soft:#e9f0fc;--green:#2d7d4f;--green-soft:#e6f4ec;--box:#f0eee8}
+@media (prefers-color-scheme:dark){:root{--bg:#161513;--card:#201f1c;--fg:#f0eee8;--muted:#a09c92;--line:#45423b;--accent:#f4823d;--accent-soft:#3a2415;--blue:#7aa5f0;--blue-soft:#1b2940;--green:#6cc492;--green-soft:#17301f;--box:#2a2925}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.4 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:1080px;margin:0 auto;padding:28px 16px 48px}
+h1{font-size:26px;margin:0 0 24px}
+h2{font-size:16px;margin:0 0 14px}
+section{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px;margin-bottom:18px}
+.flow{display:flex;flex-wrap:wrap;align-items:stretch;gap:8px}
+.step{flex:1 1 150px;background:var(--box);border-radius:8px;padding:12px}
+.step b{display:block;margin-bottom:3px}
+.step span{color:var(--muted);font-size:13px}
+.arrow{align-self:center;color:var(--muted);font-size:18px}
+.ladder .step{background:var(--green-soft);flex-basis:90px;text-align:center;font-weight:600}
+.fixes{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:8px}
+.fix{background:var(--accent-soft);border-radius:8px;padding:10px 12px;font-size:14px}
+.fix s{color:var(--muted);display:block;font-size:13px}
+.scroll{overflow-x:auto}
+svg{display:block;min-width:820px;width:100%;height:auto}
+svg text{fill:var(--fg);font:14px ui-sans-serif,system-ui,-apple-system,sans-serif}
+svg .t{font-weight:650;font-size:15px}
+svg .s{fill:var(--muted);font-size:12.5px}
+svg .l{fill:var(--muted);font-size:12px}
+svg .la{fill:var(--accent);font-size:12px;font-weight:600}
+svg .b{fill:var(--box);stroke:var(--line)}
+svg .do{fill:var(--blue-soft);stroke:var(--blue)}
+svg .pi{fill:var(--blue)}
+svg .pit{fill:var(--card);font-weight:650;font-size:13px}
+svg .pc{fill:var(--accent-soft);stroke:var(--accent);stroke-dasharray:6 5;stroke-width:1.6}
+svg .cf{fill:none;stroke:var(--line);stroke-width:1.5}
+svg .e{stroke:var(--muted);stroke-width:1.5;fill:none}
+svg .ea{stroke:var(--accent);stroke-width:1.8;stroke-dasharray:6 5;fill:none}
+svg marker path{fill:var(--muted)}
+svg #ha path{fill:var(--accent)}
+</style>
+</head>
+<body>
+<main>
+<h1>flarebot</h1>
+
+<section>
+<h2>Grok Bot: the experience to match</h2>
+<div class="flow">
+  <div class="step"><b>Text a Bot</b><span>Named contact, already created</span></div><div class="arrow">→</div>
+  <div class="step"><b>One transcript</b><span>Work, files, questions, approvals</span></div><div class="arrow">→</div>
+  <div class="step"><b>Own computer</b><span>Runs with your laptop closed</span></div><div class="arrow">→</div>
+  <div class="step"><b>You step in</b><span>Tap a card, take over, I'm done</span></div><div class="arrow">→</div>
+  <div class="step"><b>Result arrives</b><span>In chat, with a notification</span></div>
+</div>
+</section>
+
+<section>
+<h2>Building trust</h2>
+<div class="flow ladder">
+  <div class="step">Do</div><div class="arrow">→</div>
+  <div class="step">Correct</div><div class="arrow">→</div>
+  <div class="step">Save skill</div><div class="arrow">→</div>
+  <div class="step">Test</div><div class="arrow">→</div>
+  <div class="step">Schedule</div>
+</div>
+</section>
+
+<section>
+<h2>flarebot on Cloudflare</h2>
+<div class="scroll">
+<svg viewBox="0 0 1000 540" role="img" aria-label="flarebot architecture">
+<defs>
+<marker id="h" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z"/></marker>
+<marker id="ha" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="cf" x="180" y="12" width="620" height="513" rx="14"/>
+<text class="s" x="198" y="38">Cloudflare</text>
+
+<path class="e" d="M150 215H208" marker-start="url(#h)" marker-end="url(#h)"/>
+<text class="l" x="152" y="205">chat</text>
+<path class="ea" d="M150 275H208" marker-start="url(#ha)" marker-end="url(#ha)"/>
+<text class="la" x="152" y="295">screen</text>
+<path class="e" d="M338 215H372V165H410" marker-start="url(#h)" marker-end="url(#h)"/>
+<path class="ea" d="M338 275H372V420H410" marker-start="url(#ha)" marker-end="url(#ha)"/>
+<text class="la" x="364" y="365" text-anchor="end">take over</text>
+<path class="e" d="M150 445H273V305" marker-start="url(#h)" marker-end="url(#h)"/>
+<text class="l" x="158" y="437">local tools</text>
+<path class="e" d="M495 272V345" marker-end="url(#h)"/>
+<text class="l" x="503" y="312">wake, run tools</text>
+<path class="e" d="M580 100H630" marker-end="url(#h)"/>
+<text class="l" x="591" y="92">pi-ai</text>
+<path class="e" d="M760 100H840" marker-end="url(#h)"/>
+<path class="e" d="M580 225H630" marker-start="url(#h)" marker-end="url(#h)"/>
+<path class="e" d="M780 230H840" marker-start="url(#h)" marker-end="url(#h)"/>
+<path class="e" d="M705 290V415" marker-end="url(#h)"/>
+<text class="l" x="712" y="335">skill files</text>
+<path class="e" d="M580 375H840" marker-end="url(#h)"/>
+<text class="l" x="592" y="367">browse, sign in</text>
+<path class="e" d="M580 455H630" marker-start="url(#h)" marker-end="url(#h)"/>
+
+<rect class="b" x="20" y="185" width="130" height="120" rx="10"/>
+<text class="t" x="85" y="235" text-anchor="middle">You</text>
+<text class="s" x="85" y="257" text-anchor="middle">phone, desktop</text>
+
+<rect class="b" x="208" y="185" width="130" height="120" rx="10"/>
+<text class="t" x="273" y="235" text-anchor="middle">Worker</text>
+<text class="s" x="273" y="257" text-anchor="middle">app, auth, routing</text>
+
+<rect class="b" x="20" y="400" width="130" height="90" rx="10"/>
+<text class="t" x="85" y="438" text-anchor="middle">Your Mac</text>
+<text class="s" x="85" y="460" text-anchor="middle">flarebot-local</text>
+
+<rect class="do" x="410" y="55" width="170" height="217" rx="10"/>
+<text class="t" x="425" y="84">Bot</text>
+<text class="s" x="425" y="103">Durable Object</text>
+<rect class="pi" x="423" y="113" width="144" height="26" rx="6"/>
+<text class="pit" x="495" y="131" text-anchor="middle">Pi Durable loop</text>
+<text x="425" y="162">Transcript, memory</text>
+<text x="425" y="185">Routines</text>
+<text x="425" y="208">Enabled tools, skills</text>
+<text x="425" y="231">Permissions</text>
+<text x="425" y="254">Action and cost log</text>
+
+<rect class="pc" x="410" y="345" width="170" height="160" rx="10"/>
+<text class="t" x="425" y="374">Computer</text>
+<text class="s" x="425" y="393">Container, sleeps idle</text>
+<text x="425" y="423">Chrome desktop</text>
+<text x="425" y="446">Terminal</text>
+<text x="425" y="469">noVNC screen</text>
+<text class="la" x="425" y="492">Unproven: spike first</text>
+
+<rect class="b" x="630" y="60" width="130" height="80" rx="10"/>
+<text class="t" x="695" y="95" text-anchor="middle">AI Gateway</text>
+<text class="s" x="695" y="116" text-anchor="middle">cost, limits</text>
+
+<rect class="do" x="630" y="170" width="150" height="120" rx="10"/>
+<text class="t" x="645" y="197">User</text>
+<text class="s" x="645" y="215">Durable Object</text>
+<text x="645" y="240">Bot list, budgets</text>
+<text x="645" y="260">MCP, skill index</text>
+<text x="645" y="280">Encrypted secrets</text>
+
+<rect class="b" x="630" y="415" width="150" height="85" rx="10"/>
+<text class="t" x="705" y="442" text-anchor="middle">R2</text>
+<text class="s" x="705" y="463" text-anchor="middle">files, skill files</text>
+<text class="s" x="705" y="481" text-anchor="middle">login backup</text>
+
+<rect class="b" x="840" y="60" width="140" height="80" rx="10"/>
+<text class="t" x="910" y="105" text-anchor="middle">Models</text>
+
+<rect class="b" x="840" y="190" width="140" height="80" rx="10"/>
+<text class="t" x="910" y="235" text-anchor="middle">MCP servers</text>
+
+<rect class="b" x="840" y="335" width="140" height="80" rx="10"/>
+<text class="t" x="910" y="370" text-anchor="middle">Websites</text>
+<text class="s" x="910" y="391" text-anchor="middle">Gmail, GitHub, more</text>
+</svg>
+</div>
+</section>
+
+<section>
+<h2>Where flarebot beats Grok Bot</h2>
+<div class="fixes">
+  <div class="fix"><s>Usage runs out without warning</s>Cost per turn, with budgets</div>
+  <div class="fix"><s>Memory hidden</s>Readable memory view</div>
+  <div class="fix"><s>Tests do real work</s>Dry run into draft cards</div>
+  <div class="fix"><s>All Bots share logins</s>One browser profile per Bot</div>
+  <div class="fix"><s>Safety is prompt text</s>Enforced tool permissions</div>
+  <div class="fix"><s>Fixed model</s>Model picker</div>
+</div>
+</section>
+</main>
+</body>
+</html>

@@ -1,0 +1,38 @@
+{
+  "name": "flarebot",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "scripts/dev.sh",
+    "build": "vite build",
+    "types": "wrangler types",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p scripts"
+  },
+  "dependencies": {
+    "@cloudflare/kumo": "2.17.0",
+    "@earendil-works/chord": "1.4.0",
+    "@earendil-works/pi-ai": "1.4.0",
+    "@earendil-works/pi-durable": "1.4.0",
+    "@phosphor-icons/react": "2.1.10",
+    "hono": "4.13.13",
+    "jose": "6.2.13",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "react-markdown": "10.1.0",
+    "remark-gfm": "4.0.1",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "1.67.0",
+    "@cloudflare/workers-types": "5.20261024.1",
+    "@tailwindcss/vite": "4.3.3",
+    "@types/bun": "1.4.4",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.2",
+    "tailwindcss": "4.3.3",
+    "typescript": "6.0.3",
+    "vite": "8.3.5",
+    "wrangler": "4.158.0"
+  }
+}

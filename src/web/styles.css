@@ -1,0 +1,151 @@
+@source "../../node_modules/@cloudflare/kumo/dist/**/*.{js,jsx,ts,tsx}";
+@import "@cloudflare/kumo/styles";
+@import "tailwindcss";
+
+@theme {
+  --color-fb-sidebar: light-dark(#fafafa, #151514);
+  --color-fb-pane: light-dark(#fcfcfc, #232323);
+  --color-fb-line: light-dark(rgba(0, 0, 0, 0.1), rgba(255, 255, 255, 0.12));
+  --color-fb-field: light-dark(rgba(0, 0, 0, 0.05), rgba(255, 255, 255, 0.07));
+  --color-fb-field-line: light-dark(rgba(20, 20, 20, 0.15), rgba(255, 255, 255, 0.12));
+  --color-fb-active: light-dark(rgba(10, 10, 10, 0.055), rgba(255, 255, 255, 0.075));
+  --color-fb-bot: light-dark(rgba(16, 16, 0, 0.04), rgba(255, 255, 255, 0.06));
+  --color-fb-me: light-dark(#111110, #ecece8);
+  --color-fb-me-text: light-dark(#ffffff, #141414);
+  --color-fb-text: light-dark(#0a0a0a, #f2f2f2);
+  --color-fb-side-text: light-dark(#141414, rgba(255, 255, 255, 0.9));
+  --color-fb-preview: light-dark(rgba(20, 20, 20, 0.6), rgba(255, 255, 255, 0.55));
+  --color-fb-faint: light-dark(rgba(20, 20, 20, 0.4), rgba(255, 255, 255, 0.32));
+  --color-fb-time: light-dark(rgba(0, 0, 0, 0.55), rgba(255, 255, 255, 0.58));
+  --color-fb-unread: #ff3b30;
+  --color-fb-control: light-dark(#f4e9da, rgba(244, 176, 90, 0.14));
+  --color-fb-control-text: light-dark(#a4651b, #e6b271);
+
+  --color-kumo-canvas: var(--color-fb-pane);
+  --color-kumo-base: var(--color-fb-pane);
+  --color-kumo-elevated: var(--color-fb-pane);
+  --color-kumo-recessed: var(--color-fb-sidebar);
+  --color-kumo-tint: var(--color-fb-active);
+  --color-kumo-control: var(--color-fb-field);
+  --color-kumo-interact: var(--color-fb-active);
+  --color-kumo-contrast: var(--color-fb-me);
+  --color-kumo-brand: var(--color-fb-me);
+  --color-kumo-brand-hover: var(--color-fb-me);
+  --color-kumo-line: var(--color-fb-line);
+  --color-kumo-hairline: var(--color-fb-line);
+  --color-kumo-focus: var(--color-fb-faint);
+  --text-color-kumo-default: var(--color-fb-text);
+  --text-color-kumo-strong: var(--color-fb-text);
+  --text-color-kumo-subtle: var(--color-fb-preview);
+  --text-color-kumo-placeholder: var(--color-fb-faint);
+  --text-color-kumo-inverse: var(--color-fb-me-text);
+}
+
+body {
+  @apply overflow-hidden bg-fb-pane text-fb-text antialiased;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "Segoe UI", sans-serif;
+  text-rendering: optimizeLegibility;
+}
+
+#root {
+  isolation: isolate;
+}
+
+@utility fb-body {
+  @apply text-[14px] leading-5 tracking-[-0.15px];
+}
+
+@utility fb-callout {
+  @apply text-[13px] leading-[18px] tracking-[-0.08px];
+}
+
+@utility fb-caption {
+  @apply text-xs leading-4 tabular-nums;
+}
+
+@utility fb-continuous {
+  corner-shape: squircle;
+}
+
+@keyframes fb-pulse {
+  50% {
+    opacity: 1;
+  }
+}
+
+@layer components {
+  .fb-bubble {
+    @apply fb-body fb-continuous w-fit max-w-[min(76%,720px)] rounded-[26px] px-[14px] py-2;
+    overflow-wrap: anywhere;
+  }
+
+  .fb-dot {
+    @apply size-[7px] rounded-full opacity-40;
+    animation: fb-pulse 1.2s infinite;
+  }
+
+  .fb-prose > :first-child {
+    @apply mt-0;
+  }
+
+  .fb-prose > :last-child {
+    @apply mb-0;
+  }
+
+  .fb-prose p,
+  .fb-prose ul,
+  .fb-prose ol,
+  .fb-prose pre,
+  .fb-prose blockquote,
+  .fb-prose table {
+    @apply mb-2;
+  }
+
+  .fb-prose h1,
+  .fb-prose h2,
+  .fb-prose h3,
+  .fb-prose h4 {
+    @apply mt-3 mb-1 font-semibold;
+  }
+
+  .fb-prose ul {
+    @apply list-disc pl-5;
+  }
+
+  .fb-prose ol {
+    @apply list-decimal pl-5;
+  }
+
+  .fb-prose a {
+    @apply underline;
+  }
+
+  .fb-prose strong {
+    @apply font-semibold;
+  }
+
+  .fb-prose code {
+    @apply rounded bg-fb-active px-1 py-0.5 font-mono text-[0.875em];
+  }
+
+  .fb-prose pre {
+    @apply overflow-x-auto rounded-lg bg-fb-active p-2;
+  }
+
+  .fb-prose pre code {
+    @apply bg-transparent p-0;
+  }
+
+  .fb-prose blockquote {
+    @apply border-l-2 border-fb-line pl-3 text-fb-preview;
+  }
+
+  .fb-prose table {
+    @apply block w-full overflow-x-auto border-collapse;
+  }
+
+  .fb-prose th,
+  .fb-prose td {
+    @apply border border-fb-line px-2 py-1 text-left;
+  }
+}

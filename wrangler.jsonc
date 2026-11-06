@@ -1,0 +1,36 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "flarebot",
+  "account_id": "ac4542261404facc325b2e023535b26a",
+  "main": "src/worker/index.ts",
+  "compatibility_date": "2026-10-24",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  "assets": {
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  "vars": {
+    "ACCESS_TEAM_DOMAIN": "simonbalfe.cloudflareaccess.com",
+    "ACCESS_AUD": "",
+    "DEFAULT_MODEL": "anthropic/claude-sonnet-5.5"
+  },
+  "containers": [
+    {
+      "class_name": "Computer",
+      "image": "./computer/Dockerfile",
+      "instance_type": "standard-2",
+      "max_instances": 2
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      { "name": "USER", "class_name": "User" },
+      { "name": "BOT", "class_name": "Bot" },
+      { "name": "COMPUTER", "class_name": "Computer" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["User", "Bot", "Computer"] }
+  ]
+}
