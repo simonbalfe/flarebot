@@ -46,10 +46,33 @@ Read [Cookie import](docs/architecture.md#cookie-import) before importing. Every
 
 ## How it fits together
 
-```text
-You → Worker → Bot (Durable Object running Pi) → model
-                 ↓
-             Computer (Durable Object + container with Chrome)
+```mermaid
+flowchart LR
+  you(["You"])
+  mac["Local Chrome<br/>cookie import"]
+
+  subgraph cf["Cloudflare, emulated locally for now"]
+    worker["Worker<br/>API, auth, web app"]
+    user["User<br/>Bot list"]
+    bot["Bot<br/>Pi agent, transcript, memory"]
+    others["Other Bots"]
+    computer["Computer<br/>Chrome, terminal, files<br/>sleeps when idle"]
+  end
+
+  models["OpenRouter<br/>models"]
+  sites["Websites"]
+
+  you -->|"chat"| worker
+  you -.->|"watch, take over"| worker
+  mac -->|"cookies"| worker
+  worker --> user
+  worker --> bot
+  worker -.->|"screen"| computer
+  bot <-->|"message_bot"| others
+  bot -->|"tools"| computer
+  others -->|"tools"| computer
+  bot --> models
+  computer --> sites
 ```
 
 - **Bot:** holds the conversation and memory, and runs the agent loop.
