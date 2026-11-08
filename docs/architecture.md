@@ -275,13 +275,24 @@ A Bot can use your own Mac through native tools. A small daemon, `scripts/flareb
 Bot tool mac_* ──▶ Mac Durable Object ──WebSocket──▶ flarebot-local on the Mac ──▶ approval dialog ──▶ action
 ```
 
-| Step | How |
+### Connecting a Mac
+
+1. Details → Mac → **+** shows `curl -fsSL <app url>/mac/install.sh | sh`. Run it once in Terminal.
+2. `install.sh` (built by `src/worker/mac-install.ts` with the app's own URL) installs Bun if it's missing, downloads the daemon from `/mac/flarebot-local.ts` into `~/.flarebot-local`, and registers the LaunchAgent `com.flarebot.local`, which starts at login and restarts after a crash.
+3. On its first run the daemon asks for a folder with the macOS folder picker. It must be inside the home folder and can't be the home folder itself.
+4. It then starts a device link: `POST /api/mac/link` returns a secret device code and a short user code, and the daemon opens `<app url>/connect-mac?code=<user code>` in the browser with a notification showing the same code.
+5. On that page, signed in, **Connect** approves the link. Details → Mac shows a pending link with the same **Connect** button.
+6. The daemon polls `POST /api/mac/link/poll` every 2 seconds. Once approved it receives a device token, single use, and connects.
+
+| Daemon command | Does |
 | --- | --- |
-| Pair | Details → Mac → **+** shows a one-time command. Run `bun scripts/flarebot-local.ts pair --url <app url> --code <code>` on the Mac |
-| Allow folders | `bun scripts/flarebot-local.ts allow <folder>`; `disallow <folder>` removes one |
-| Connect | `bun scripts/flarebot-local.ts run`. It reconnects on its own |
-| Give a Bot access | Tick **Access** in that Bot's Details → Mac |
-| Unpair | **×** in Details → Mac |
+| `run [--url]` | Start, setting up through popups when needed. Only one copy runs at a time |
+| `add-folder` | Pick another allowed folder |
+| `allow <folder>`, `disallow <folder>` | Change allowed folders. A running daemon sends the change within 2 seconds |
+| `forget-always` | Clear every "Always allow" choice |
+| `unlink`, `status` | Drop the token, or show the setup |
+
+`curl -fsSL <app url>/mac/install.sh | sh -s uninstall` removes the LaunchAgent and `~/.flarebot-local`.
 
 | Tool | Action |
 | --- | --- |
@@ -291,17 +302,19 @@ Bot tool mac_* ──▶ Mac Durable Object ──WebSocket──▶ flarebot-lo
 | `mac_list` | A folder's entries, or the allowed folders with no path |
 | `mac_open` | An http(s) URL, or a file or folder, with `open` |
 
-1. **Pairing:** the pairing code is 8 characters, lasts 10 minutes and dies after 5 wrong tries. Pairing returns a random device token. The `Mac` Durable Object stores only its SHA-256 hash, and the daemon keeps it in `~/.config/flarebot-local/config.json` with mode `0600`. Pairing again replaces the old device.
-2. **Routes:** `POST /api/mac/pair` and `GET /api/mac/connect` sit outside the session check, because the daemon authenticates with the code or the token. The rest (`GET`/`DELETE /api/mac`, `POST /api/mac/pairing-code`, `PUT /api/bots/:id/mac`) need a session.
+1. **Link security:** the user code is 8 characters and the link lasts 10 minutes. Starting a new link replaces a pending one. The device code and the device token are random 256-bit values; the `Mac` Durable Object stores only their SHA-256 hashes. The daemon keeps the token in `~/.config/flarebot-local/config.json` with mode `0600`. Linking again replaces the old device.
+2. **Routes:** `/mac/install.sh`, `/mac/flarebot-local.ts`, `POST /api/mac/link`, `POST /api/mac/link/poll`, `GET /api/mac/whoami` and `GET /api/mac/connect` sit outside the session check, because the daemon has no session. Approving (`POST /api/mac/link/approve`), status, unpair and the per-Bot switch need a session.
 3. **Requests:** a tool call becomes `Mac.request`, which sends `{id, bot, action}` over the socket and waits up to 6 minutes for the result. Offline, unpaired and disconnected Macs fail at once with a clear error.
 4. **The daemon decides:** before any dialog, it refuses relative paths, paths outside the allowed folders after resolving symlinks and `..`, any command containing `sudo`, and everything when no folder is allowed. Then it shows a macOS dialog: **Deny**, **Allow once** or **Always allow <Bot>**. The dialog denies after 120 seconds. Requests run one at a time.
-5. **Always allow** is stored per Bot ID in the daemon config. `bun scripts/flarebot-local.ts forget-always` clears it.
-6. The prompt describes the Mac tools only to a Bot whose **Access** is ticked. With it off, every Mac tool fails.
+5. **Always allow** is stored per Bot ID in the daemon config.
+6. **Unpair:** the **×** in Details → Mac closes the socket. The daemon clears its token, shows a notification and exits; running the install command again reconnects.
+7. The prompt describes the Mac tools only to a Bot whose **Access** is ticked. With it off, every Mac tool fails.
 
 **Limits:**
 - One Mac per account.
 - Approval happens only on the Mac, so a Mac away from you denies by timeout.
 - `mac_run` is a full shell inside the allowed folder once approved; the folder check covers its starting folder, not what the command touches.
+- Like any device-code flow, anyone can start a link. Approve only a code your own Mac is showing.
 - No screenshots or GUI control.
 
 ## MCP servers

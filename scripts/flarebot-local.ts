@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 import { spawn } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, unlinkSync, watchFile, writeFileSync } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
@@ -24,14 +24,17 @@ interface Request {
 
 interface Config {
   url: string;
-  token: string;
+  token: string | null;
   name: string;
   roots: string[];
   alwaysAllow: string[];
 }
 
+type LinkPoll = { status: "pending" } | { status: "expired" } | { status: "linked"; token: string };
+
 const configDir = join(homedir(), ".config", "flarebot-local");
 const configPath = join(configDir, "config.json");
+const lockPath = join(configDir, "daemon.pid");
 const commandTimeoutMs = 120_000;
 const dialogTimeoutSeconds = 120;
 const maxOutputChars = 30_000;
@@ -39,26 +42,36 @@ const maxReadBytes = 1_000_000;
 const maxDialogChars = 600;
 const reconnectBaseMs = 1_000;
 const reconnectMaxMs = 60_000;
+const linkPollMs = 2_000;
+const configWatchMs = 2_000;
 const blockedCommand = /(^|[\s;&|(])sudo\b/;
+const unlinkedReasons = ["Unpaired", "Linked again"];
 
 const usage = `Usage:
-  bun scripts/flarebot-local.ts pair --url <app url> --code <pairing code> [--name <name>]
-  bun scripts/flarebot-local.ts allow <folder>
-  bun scripts/flarebot-local.ts disallow <folder>
-  bun scripts/flarebot-local.ts forget-always
-  bun scripts/flarebot-local.ts status
-  bun scripts/flarebot-local.ts run`;
+  flarebot-local run [--url <app url>]
+  flarebot-local add-folder
+  flarebot-local allow <folder>
+  flarebot-local disallow <folder>
+  flarebot-local forget-always
+  flarebot-local unlink
+  flarebot-local status`;
 
-const { positionals, values } = parseArgs({
-  allowPositionals: true,
-  options: { url: { type: "string" }, code: { type: "string" }, name: { type: "string" } },
-});
+const { positionals, values } = parseArgs({ allowPositionals: true, options: { url: { type: "string" } } });
+
+let activeSocket: WebSocket | null = null;
 
 const [command, argument] = positionals;
 switch (command) {
-  case "pair":
-    await pair();
+  case "run":
+    await runDaemon();
     break;
+  case "add-folder": {
+    const config = loadConfig();
+    const folder = await pickFolder("Choose another folder flarebot can use on this Mac");
+    if (folder !== null) saveConfig({ ...config, roots: [...new Set([...config.roots, folder])] });
+    console.log(JSON.stringify(loadConfig().roots, null, 2));
+    break;
+  }
   case "allow":
     changeRoots(argument, true);
     break;
@@ -69,25 +82,26 @@ switch (command) {
     saveConfig({ ...loadConfig(), alwaysAllow: [] });
     console.log("Every Bot needs approval again.");
     break;
+  case "unlink":
+    saveConfig({ ...loadConfig(), token: null });
+    console.log("Unlinked. The next run asks to connect again.");
+    break;
   case "status": {
     const config = loadConfig();
-    console.log(JSON.stringify({ url: config.url, name: config.name, roots: config.roots, alwaysAllow: config.alwaysAllow }, null, 2));
+    console.log(JSON.stringify({ url: config.url, name: config.name, linked: config.token !== null, roots: config.roots, alwaysAllow: config.alwaysAllow }, null, 2));
     break;
   }
-  case "run":
-    connect(loadConfig(), 0);
-    break;
   default:
     console.log(usage);
     process.exit(command === undefined ? 0 : 1);
 }
 
 function loadConfig(): Config {
-  if (!existsSync(configPath)) throw new Error("Not paired. Run the pair command first.");
+  if (!existsSync(configPath)) throw new Error("Not set up yet. Start it with: flarebot-local run --url <app url>");
   const parsed: unknown = JSON.parse(readFileSync(configPath, "utf8"));
-  if (typeof parsed !== "object" || parsed === null || !("url" in parsed) || !("token" in parsed)) throw new Error(`Invalid config at ${configPath}`);
-  const config = parsed as Partial<Config> & { url: string; token: string };
-  return { url: config.url, token: config.token, name: config.name ?? hostname(), roots: config.roots ?? [], alwaysAllow: config.alwaysAllow ?? [] };
+  if (typeof parsed !== "object" || parsed === null || !("url" in parsed) || typeof parsed.url !== "string") throw new Error(`Invalid config at ${configPath}`);
+  const config = parsed as Partial<Config> & { url: string };
+  return { url: config.url, token: config.token ?? null, name: config.name ?? hostname(), roots: config.roots ?? [], alwaysAllow: config.alwaysAllow ?? [] };
 }
 
 function saveConfig(config: Config): void {
@@ -96,41 +110,158 @@ function saveConfig(config: Config): void {
   chmodSync(configPath, 0o600);
 }
 
-async function pair(): Promise<void> {
-  if (values.url === undefined || values.code === undefined) throw new Error(usage);
-  const url = values.url.replace(/\/+$/, "");
-  const name = values.name ?? hostname();
-  const response = await fetch(`${url}/api/mac/pair`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code: values.code, name }) });
-  const body: unknown = await response.json().catch(() => null);
-  if (!response.ok || typeof body !== "object" || body === null || !("token" in body) || typeof body.token !== "string") {
-    throw new Error(`Pairing failed with HTTP ${response.status}: ${JSON.stringify(body)}`);
+function startingConfig(): Config {
+  const url = values.url?.replace(/\/+$/, "");
+  if (existsSync(configPath)) {
+    const config = loadConfig();
+    if (url === undefined || url === config.url) return config;
+    return { ...config, url, token: null };
   }
-  const previous = existsSync(configPath) ? loadConfig() : null;
-  saveConfig({ url, token: body.token, name, roots: previous?.roots ?? [], alwaysAllow: [] });
-  console.log(`Paired as ${name}. Allow a folder with the allow command, then start the run command.`);
+  if (url === undefined) throw new Error(usage);
+  return { url, token: null, name: hostname(), roots: [], alwaysAllow: [] };
+}
+
+function validRoot(folder: string): string | null {
+  const root = realpathSync(resolve(expandHome(folder)));
+  if (!statSync(root).isDirectory() || root === "/" || root === homedir() || !root.startsWith(`${homedir()}/`)) return null;
+  return root;
 }
 
 function changeRoots(folder: string | undefined, add: boolean): void {
   if (folder === undefined) throw new Error(usage);
   const config = loadConfig();
-  const root = realpathSync(resolve(expandHome(folder)));
-  if (add && !statSync(root).isDirectory()) throw new Error(`${root} is not a folder`);
-  if (add && root === homedir()) throw new Error("Allow a folder inside your home folder, not all of it");
+  const root = add ? validRoot(folder) : realpathSync(resolve(expandHome(folder)));
+  if (root === null) throw new Error("Allow a folder inside your home folder, not your whole home folder");
   const roots = add ? [...new Set([...config.roots, root])] : config.roots.filter((current) => current !== root);
   saveConfig({ ...config, roots });
   console.log(JSON.stringify(roots, null, 2));
 }
 
+async function runDaemon(): Promise<void> {
+  if (!acquireLock()) {
+    console.log("flarebot-local is already running.");
+    process.exit(0);
+  }
+  let config = startingConfig();
+  saveConfig(config);
+  config = await ensureFolder(config);
+  config = await ensureLinked(config);
+  watchFile(configPath, { interval: configWatchMs }, () => sendHello(loadConfig()));
+  connect(config, 0);
+}
+
+function acquireLock(): boolean {
+  mkdirSync(configDir, { recursive: true, mode: 0o700 });
+  if (existsSync(lockPath)) {
+    const pid = Number(readFileSync(lockPath, "utf8"));
+    if (Number.isInteger(pid) && pid !== process.pid && processAlive(pid)) return false;
+  }
+  writeFileSync(lockPath, String(process.pid));
+  process.on("exit", () => {
+    if (existsSync(lockPath) && readFileSync(lockPath, "utf8") === String(process.pid)) unlinkSync(lockPath);
+  });
+  return true;
+}
+
+function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function ensureFolder(config: Config): Promise<Config> {
+  if (config.roots.length > 0) return config;
+  while (true) {
+    const folder = await pickFolder("Choose a folder flarebot can use on this Mac. Bots can only touch files inside it, and you approve every action.");
+    if (folder === null) {
+      const choice = await osascript(
+        ["activate", `set answer to display dialog "flarebot needs a folder on this Mac to work in." with title "flarebot" buttons {"Quit", "Choose folder"} default button "Choose folder"`, "return button returned of answer"],
+        [],
+      );
+      if (choice === "Choose folder") continue;
+      await notify("flarebot-local stopped because no folder was chosen. Run the installer again to set it up.");
+      process.exit(0);
+    }
+    const root = validRoot(folder);
+    if (root !== null) {
+      const updated = { ...config, roots: [root] };
+      saveConfig(updated);
+      return updated;
+    }
+    await notify("Choose a folder inside your home folder, not your whole home folder.");
+  }
+}
+
+async function ensureLinked(config: Config): Promise<Config> {
+  if (config.token !== null && (await tokenState(config)) !== "rejected") return config;
+  while (true) {
+    const token = await link(config);
+    if (token !== null) {
+      const updated = { ...loadConfig(), token };
+      saveConfig(updated);
+      await notify(`This Mac is connected to flarebot as ${updated.name}.`);
+      return updated;
+    }
+    const again = await osascript(
+      ["activate", `set answer to display dialog "The connect request expired." with title "flarebot" buttons {"Quit", "Try again"} default button "Try again" giving up after ${dialogTimeoutSeconds}`, "return button returned of answer"],
+      [],
+    );
+    if (again !== "Try again") process.exit(0);
+  }
+}
+
+async function tokenState(config: Config): Promise<"valid" | "rejected" | "unknown"> {
+  try {
+    const response = await fetch(`${config.url}/api/mac/whoami`, { headers: { authorization: `Bearer ${config.token ?? ""}` } });
+    if (response.status === 204) return "valid";
+    return response.status === 401 ? "rejected" : "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
+async function link(config: Config): Promise<string | null> {
+  const response = await fetch(`${config.url}/api/mac/link`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: config.name }) });
+  if (!response.ok) throw new Error(`Could not start connecting: HTTP ${response.status}`);
+  const started = (await response.json()) as { deviceCode: string; userCode: string; verifyUrl: string };
+  await runProcess("open", [started.verifyUrl], undefined);
+  await notify(`Approve this Mac in your browser. Code: ${started.userCode}`);
+  console.log(`Waiting for approval of ${started.userCode} at ${started.verifyUrl}`);
+  while (true) {
+    await Bun.sleep(linkPollMs);
+    const poll = await fetch(`${config.url}/api/mac/link/poll`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ deviceCode: started.deviceCode }) })
+      .then((result) => result.json() as Promise<LinkPoll>)
+      .catch((): LinkPoll => ({ status: "pending" }));
+    if (poll.status === "linked") return poll.token;
+    if (poll.status === "expired") return null;
+  }
+}
+
+async function unlinked(reason: string): Promise<never> {
+  saveConfig({ ...loadConfig(), token: null });
+  await notify(`This Mac was disconnected from flarebot (${reason}). Run the installer again to reconnect.`);
+  process.exit(0);
+}
+
+function sendHello(config: Config): void {
+  if (activeSocket?.readyState !== WebSocket.OPEN) return;
+  activeSocket.send(JSON.stringify({ type: "hello", name: config.name, roots: config.roots }));
+}
+
 function connect(config: Config, attempt: number): void {
   const url = `${config.url.replace(/^http/, "ws")}/api/mac/connect`;
-  const socket = new WebSocket(url, { headers: { authorization: `Bearer ${config.token}` } });
+  const socket = new WebSocket(url, { headers: { authorization: `Bearer ${config.token ?? ""}` } });
+  activeSocket = socket;
   let queue: Promise<void> = Promise.resolve();
   let opened = false;
 
   socket.addEventListener("open", () => {
     opened = true;
     console.log(`Connected to ${config.url} with ${config.roots.length} allowed folders.`);
-    socket.send(JSON.stringify({ type: "hello", name: config.name, roots: config.roots }));
+    sendHello(config);
   });
 
   socket.addEventListener("message", (event) => {
@@ -143,11 +274,37 @@ function connect(config: Config, attempt: number): void {
     });
   });
 
-  socket.addEventListener("close", (event) => {
+  socket.addEventListener("close", async (event) => {
+    if (activeSocket === socket) activeSocket = null;
+    if (unlinkedReasons.includes(event.reason)) await unlinked(event.reason);
+    if (!opened && (await tokenState(loadConfig())) === "rejected") await unlinked("the link was removed");
     const next = opened ? 0 : attempt + 1;
     const delay = Math.min(reconnectMaxMs, reconnectBaseMs * 2 ** next);
     console.log(`Disconnected (${event.code}${event.reason === "" ? "" : ` ${event.reason}`}). Reconnecting in ${Math.round(delay / 1000)}s.`);
     setTimeout(() => connect(loadConfig(), next), delay);
+  });
+}
+
+async function pickFolder(prompt: string): Promise<string | null> {
+  const chosen = await osascript(["activate", "try", "return POSIX path of (choose folder with prompt (item 1 of argv))", "on error", 'return ""', "end try"], [prompt]);
+  return chosen === "" ? null : chosen.replace(/\/$/, "");
+}
+
+async function notify(message: string): Promise<void> {
+  console.log(message);
+  await osascript(['display notification (item 1 of argv) with title "flarebot"'], [message]);
+}
+
+function osascript(body: string[], args: string[]): Promise<string> {
+  const lines = ["on run argv", ...body, "end run"];
+  return new Promise((resolveOutput) => {
+    const child = spawn("osascript", [...lines.flatMap((line) => ["-e", line]), ...args]);
+    let output = "";
+    child.stdout.on("data", (chunk: Buffer) => {
+      output += chunk.toString();
+    });
+    child.on("close", () => resolveOutput(output.trim()));
+    child.on("error", () => resolveOutput(""));
   });
 }
 
@@ -218,27 +375,17 @@ function describe(action: MacAction): string {
   }
 }
 
-function approve(botName: string, description: string): Promise<"allow" | "always" | "deny"> {
-  const script = [
-    "on run argv",
-    `set answer to display dialog (item 1 of argv) with title "flarebot" buttons {"Deny", "Allow once", item 2 of argv} default button "Deny" cancel button "Deny" giving up after ${dialogTimeoutSeconds}`,
-    "if gave up of answer then return \"Deny\"",
-    "return button returned of answer",
-    "end run",
-  ];
-  const args = script.flatMap((line) => ["-e", line]);
-  return new Promise((resolveDecision) => {
-    const child = spawn("osascript", [...args, `${botName} wants to ${description}`, `Always allow ${botName}`]);
-    let output = "";
-    child.stdout.on("data", (chunk: Buffer) => {
-      output += chunk.toString();
-    });
-    child.on("close", () => {
-      const answer = output.trim();
-      resolveDecision(answer === "Allow once" ? "allow" : answer.startsWith("Always allow") ? "always" : "deny");
-    });
-    child.on("error", () => resolveDecision("deny"));
-  });
+async function approve(botName: string, description: string): Promise<"allow" | "always" | "deny"> {
+  const answer = await osascript(
+    [
+      "activate",
+      `set answer to display dialog (item 1 of argv) with title "flarebot" buttons {"Deny", "Allow once", item 2 of argv} default button "Deny" cancel button "Deny" giving up after ${dialogTimeoutSeconds}`,
+      'if gave up of answer then return "Deny"',
+      "return button returned of answer",
+    ],
+    [`${botName} wants to ${description}`, `Always allow ${botName}`],
+  );
+  return answer === "Allow once" ? "allow" : answer.startsWith("Always allow") ? "always" : "deny";
 }
 
 async function execute(config: Config, action: MacAction): Promise<MacResult> {

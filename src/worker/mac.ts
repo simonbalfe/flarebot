@@ -15,22 +15,25 @@ export interface MacStatus {
   connected: boolean;
   name: string | null;
   roots: string[];
-  pairingCode: string | null;
+  pendingLink: { userCode: string; name: string } | null;
 }
+
+export type LinkPoll = { status: "pending" } | { status: "expired" } | { status: "linked"; token: string };
 
 interface Device {
   name: string;
   tokenHash: string;
 }
 
-interface Pairing {
-  code: string;
+interface Link {
+  deviceCodeHash: string;
+  userCode: string;
+  name: string;
   expiresAt: number;
-  attempts: number;
+  approved: boolean;
 }
 
-const pairingTtlMs = 10 * 60 * 1000;
-const maxPairingAttempts = 5;
+const linkTtlMs = 10 * 60 * 1000;
 const requestTimeoutMs = 6 * 60 * 1000;
 const codeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const codeLength = 8;
@@ -63,51 +66,58 @@ export class Mac extends DurableObject<Env> {
 
   status(): MacStatus {
     const device = this.#device();
-    const pairing = this.#pairing();
+    const link = this.#link();
     return {
       paired: device !== null,
       connected: this.ctx.getWebSockets().length > 0,
       name: device?.name ?? null,
       roots: this.ctx.storage.kv.get<string[]>("roots") ?? [],
-      pairingCode: pairing === null ? null : pairing.code,
+      pendingLink: link === null || link.approved ? null : { userCode: link.userCode, name: link.name },
     };
   }
 
-  createPairingCode(): string {
-    const code = randomCode();
-    this.ctx.storage.kv.put("pairing", { code, expiresAt: Date.now() + pairingTtlMs, attempts: 0 } satisfies Pairing);
-    return code;
+  async startLink(name: string): Promise<{ deviceCode: string; userCode: string }> {
+    const deviceCode = randomToken();
+    const userCode = randomCode();
+    this.ctx.storage.kv.put("link", { deviceCodeHash: await sha256(deviceCode), userCode, name, expiresAt: Date.now() + linkTtlMs, approved: false } satisfies Link);
+    return { deviceCode, userCode };
   }
 
-  async pair(code: string, name: string): Promise<string | null> {
-    const pairing = this.#pairing();
-    if (pairing === null) return null;
-    if (pairing.code !== code.trim().toUpperCase()) {
-      const attempts = pairing.attempts + 1;
-      if (attempts >= maxPairingAttempts) this.ctx.storage.kv.delete("pairing");
-      else this.ctx.storage.kv.put("pairing", { ...pairing, attempts });
-      return null;
-    }
+  approveLink(userCode: string): boolean {
+    const link = this.#link();
+    if (link === null || link.approved || link.userCode !== userCode.trim().toUpperCase()) return false;
+    this.ctx.storage.kv.put("link", { ...link, approved: true } satisfies Link);
+    return true;
+  }
+
+  async pollLink(deviceCode: string): Promise<LinkPoll> {
+    const link = this.#link();
+    if (link === null || (await sha256(deviceCode)) !== link.deviceCodeHash) return { status: "expired" };
+    if (!link.approved) return { status: "pending" };
     const token = randomToken();
-    this.#closeSockets("Paired again");
-    this.ctx.storage.kv.put("device", { name, tokenHash: await sha256(token) } satisfies Device);
-    this.ctx.storage.kv.delete("pairing");
+    this.#closeSockets("Linked again");
+    this.ctx.storage.kv.put("device", { name: link.name, tokenHash: await sha256(token) } satisfies Device);
+    this.ctx.storage.kv.delete("link");
     this.ctx.storage.kv.delete("roots");
-    return token;
+    return { status: "linked", token };
+  }
+
+  async checkToken(token: string): Promise<boolean> {
+    const device = this.#device();
+    return device !== null && token !== "" && (await sha256(token)) === device.tokenHash;
   }
 
   unpair(): void {
     this.#closeSockets("Unpaired");
     this.ctx.storage.kv.delete("device");
-    this.ctx.storage.kv.delete("pairing");
+    this.ctx.storage.kv.delete("link");
     this.ctx.storage.kv.delete("roots");
   }
 
   override async fetch(request: Request): Promise<Response> {
     if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") return new Response("Expected a WebSocket", { status: 426 });
-    const device = this.#device();
     const token = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
-    if (device === null || token === "" || (await sha256(token)) !== device.tokenHash) return new Response("Unauthorized", { status: 401 });
+    if (!(await this.checkToken(token))) return new Response("Unauthorized", { status: 401 });
     this.#closeSockets("Replaced by a new connection");
     const pair = new WebSocketPair();
     this.ctx.acceptWebSocket(pair[1]);
@@ -157,11 +167,11 @@ export class Mac extends DurableObject<Env> {
     return this.ctx.storage.kv.get<Device>("device") ?? null;
   }
 
-  #pairing(): Pairing | null {
-    const pairing = this.ctx.storage.kv.get<Pairing>("pairing");
-    if (pairing === undefined) return null;
-    if (pairing.expiresAt > Date.now()) return pairing;
-    this.ctx.storage.kv.delete("pairing");
+  #link(): Link | null {
+    const link = this.ctx.storage.kv.get<Link>("link");
+    if (link === undefined) return null;
+    if (link.expiresAt > Date.now()) return link;
+    this.ctx.storage.kv.delete("link");
     return null;
   }
 

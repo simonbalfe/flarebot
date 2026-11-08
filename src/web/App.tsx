@@ -5,6 +5,7 @@ import { api, type BotSummary, type BotView, type CliSummary, type ComputerStatu
 import { authClient } from "./auth";
 import { Avatar, botMentions } from "./Avatar";
 import { Composer } from "./Composer";
+import { ConnectMac } from "./ConnectMac";
 import { ComputerPanel, TakeOver } from "./Computer";
 import { formatListTime } from "./format";
 import { GroupAvatars, GroupPane } from "./Group";
@@ -199,8 +200,13 @@ function cliNameFrom(fileName: string): string {
 const fileInput = "text-xs file:mr-2 file:cursor-pointer file:rounded-full file:border-0 file:bg-fb-active file:px-2.5 file:py-1";
 const submitButton = "w-fit rounded-full! bg-fb-me! text-fb-me-text!";
 
-function MacSection({ status, enabled, onToggle, onPair, onUnpair }: { status: MacStatus | null; enabled: boolean; onToggle: () => void; onPair: () => void; onUnpair: () => void }) {
-  const pairCommand = status?.pairingCode == null ? null : `bun scripts/flarebot-local.ts pair --url ${window.location.origin} --code ${status.pairingCode}`;
+function macInstallCommand(): string {
+  return `curl -fsSL ${window.location.origin}/mac/install.sh | sh`;
+}
+
+function MacSection({ status, enabled, onToggle, onApprove, onUnpair }: { status: MacStatus | null; enabled: boolean; onToggle: () => void; onApprove: (userCode: string) => void; onUnpair: () => void }) {
+  const [showInstall, setShowInstall] = useState(false);
+  const installCommand = macInstallCommand();
   return (
     <div className="flex flex-col">
       <div className="mb-1 flex items-center justify-between">
@@ -212,7 +218,7 @@ function MacSection({ status, enabled, onToggle, onPair, onUnpair }: { status: M
         {status?.paired === true ? (
           <button type="button" aria-label="Unpair Mac" className={iconButton} onClick={onUnpair}><XIcon size={12} /></button>
         ) : (
-          <button type="button" aria-label="Pair Mac" className={iconButton} onClick={onPair}><PlusIcon size={12} /></button>
+          <button type="button" aria-label="Connect a Mac" className={iconButton} onClick={() => setShowInstall(!showInstall)}><PlusIcon size={12} /></button>
         )}
       </div>
       {status?.paired === true ? (
@@ -226,10 +232,16 @@ function MacSection({ status, enabled, onToggle, onPair, onUnpair }: { status: M
           ))}
         </>
       ) : null}
-      {pairCommand !== null && status?.paired !== true ? (
+      {status?.pendingLink != null ? (
+        <div className="flex items-center justify-between gap-2 border-t border-fb-line py-1.5">
+          <span className="min-w-0 truncate">{status.pendingLink.name} · <span className="font-mono text-xs">{status.pendingLink.userCode}</span></span>
+          <Button type="button" size="sm" className={submitButton} onClick={() => status.pendingLink !== null && onApprove(status.pendingLink.userCode)}>Connect</Button>
+        </div>
+      ) : null}
+      {showInstall && status?.paired !== true ? (
         <div className="flex items-start gap-2 border-t border-fb-line pt-2">
-          <code className="min-w-0 flex-1 font-mono text-xs [overflow-wrap:anywhere]">{pairCommand}</code>
-          <button type="button" aria-label="Copy" className={iconButton} onClick={() => void navigator.clipboard.writeText(pairCommand)}><CopyIcon size={12} /></button>
+          <code className="min-w-0 flex-1 font-mono text-xs [overflow-wrap:anywhere]">{installCommand}</code>
+          <button type="button" aria-label="Copy" className={iconButton} onClick={() => void navigator.clipboard.writeText(installCommand)}><CopyIcon size={12} /></button>
         </div>
       ) : null}
     </div>
@@ -801,7 +813,7 @@ function Workspace() {
                     status={macStatus}
                     enabled={shown.macAccess}
                     onToggle={() => currentId !== null && void guard(() => api.setBotMac(currentId, !shown.macAccess)).then(() => loadView(currentId, threadId))}
-                    onPair={() => void guard(api.createMacPairingCode).then(() => loadMac())}
+                    onApprove={(userCode) => void guard(() => api.approveMacLink(userCode)).then(() => loadMac())}
                     onUnpair={() => window.confirm("Unpair this Mac?") && void guard(api.unpairMac).then(() => loadMac())}
                   />
                 </DetailsPanel>
@@ -892,6 +904,7 @@ export function App() {
 
   if (signedIn === null) return <div className="h-svh bg-fb-pane" />;
   if (!signedIn) return <SignIn />;
+  if (window.location.pathname === "/connect-mac") return <ConnectMac />;
   return (
     <Toasty toastManager={toasts}>
       <Workspace />

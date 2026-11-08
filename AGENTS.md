@@ -25,9 +25,11 @@ Run both checks after every code change. Docker or OrbStack must be running for 
 | `src/worker/router.ts` | Model call that picks Bots for a group message with no name |
 | `src/worker/repos.ts` | Each Bot's folder repo in Artifacts: create, clone into the folder, commit, pull, push, with short-lived tokens |
 | `src/worker/pool.ts` | Shared pool of CLIs and Agent Skills: the `toolbox` Artifacts repo cloned to `/workspace/toolbox`, publish, validate and remove |
-| `src/worker/mac.ts` | `Mac` Durable Object: pairing, the daemon's WebSocket, request and result routing |
+| `src/worker/mac.ts` | `Mac` Durable Object: device link, the daemon's WebSocket, request and result routing |
+| `src/worker/mac-install.ts` | `install.sh` served at `/mac/install.sh`: Bun, the daemon and the LaunchAgent |
+| `src/web/ConnectMac.tsx` | `/connect-mac` page that approves a Mac's link |
 | `src/worker/mac-tools.ts` | `mac_run`, `mac_read`, `mac_write`, `mac_list`, `mac_open` Bot tools and their prompt line |
-| `scripts/flarebot-local.ts` | Mac daemon: pair, allowed folders, approval dialog, runs the actions |
+| `scripts/flarebot-local.ts` | Mac daemon: folder picker, device link, allowed folders, approval dialog, runs the actions. Also served to Macs at `/mac/flarebot-local.ts` |
 | `src/worker/mcp.ts` | Remote MCP servers through `@earendil-works/pi-mcp`: list tools, call a tool |
 | `src/worker/computer.ts` | `Computer` Durable Object: container, commands, snapshots, a browser tab per Bot |
 | `src/worker/auth.ts` | Better Auth magic links and the API session check |

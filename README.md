@@ -32,7 +32,8 @@ Inspired by the UX of [Grok Bot](https://docs.x.ai/grok-bot/overview).
 | Remote MCP servers, added once and switched on per Bot | Built, connect and tool call tested locally |
 | One shared pool of CLIs and Agent Skills in Artifacts, ticked per Bot | Built, add, tick and remove tested locally |
 | Bots write their own CLIs in any language and skills, and publish them to the pool | Built, a Bot has published a Go CLI; skill publishing not yet run by a Bot |
-| Your own Mac as native Bot tools, through the `flarebot-local` daemon, with allowed folders and an approval dialog per action | Built, pairing and every action tested locally through a test daemon; not yet run by a Bot |
+| Your own Mac as native Bot tools, through the `flarebot-local` daemon, with allowed folders and an approval dialog per action | Built, run by a Bot on live |
+| One-line Mac install with a LaunchAgent, a folder picker and browser approval instead of pairing codes | Built, link flow and daemon tested locally |
 | Connected apps, MCP OAuth sign-in, Vault | Planned |
 | Push notifications, voice | Planned |
 
@@ -57,7 +58,7 @@ Open http://127.0.0.1:8787. The first run builds the computer image, which takes
 | `scripts/deploy.sh` | Deploy, including migrations and secrets |
 | `bun scripts/import-chrome-cookies.ts` | Copy local Chrome logins to the computer |
 | `bun scripts/add-cli.ts --file <path> [--name <name>] [--description <text>]` | Add a Linux `amd64` CLI to the shared pool, then tick it per Bot in Details |
-| `bun scripts/flarebot-local.ts pair --url <app url> --code <code>` | Pair this Mac with the code from Details → Mac, then `allow <folder>` and `run` |
+| `curl -fsSL <app url>/mac/install.sh \| sh` | Connect this Mac: installs the daemon, then asks for a folder and opens the browser to approve |
 | `bun scripts/add-skill.ts --path <skill folder or SKILL.md>` | Add an Agent Skill to the shared pool, then tick it per Bot in Details |
 | `bun scripts/install-on-computer.ts --file <path> --to /workspace/bots/<id>/<path>` | Copy a CLI or skill to a Bot's folder. Add `--executable` for a CLI |
 

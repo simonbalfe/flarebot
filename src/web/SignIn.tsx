@@ -20,7 +20,8 @@ export function SignIn() {
 
   const submit = async () => {
     setStatus("sending");
-    const { error } = await authClient.signIn.magicLink({ email: email.trim(), callbackURL: "/", errorCallbackURL: "/" });
+    const returnTo = `${window.location.pathname}${window.location.search}`;
+    const { error } = await authClient.signIn.magicLink({ email: email.trim(), callbackURL: returnTo, errorCallbackURL: returnTo });
     setStatus(error === null ? "sent" : "failed");
   };
 

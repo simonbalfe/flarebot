@@ -2,6 +2,8 @@ import { type Context, Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import { createAuth, requireSession } from "./auth";
+import daemonSource from "../../scripts/flarebot-local.ts?raw";
+import { macInstallScript } from "./mac-install";
 import { cliNamePattern } from "./pool";
 import { type AppEnv, computerName, macName, models, userName } from "./env";
 
@@ -31,7 +33,9 @@ const poolItemName = z.string().regex(/^[a-z0-9][a-z0-9._-]{0,63}$/);
 const poolKind = z.enum(["clis", "skills"]);
 const botPoolBody = z.object({ names: z.array(poolItemName).max(100) });
 const maxUploadBytes = 30 * 1024 * 1024;
-const macPairBody = z.object({ code: z.string().trim().min(1).max(20), name: z.string().trim().min(1).max(100) });
+const macLinkBody = z.object({ name: z.string().trim().min(1).max(100) });
+const macPollBody = z.object({ deviceCode: z.string().regex(/^[0-9a-f]{64}$/) });
+const macApproveBody = z.object({ userCode: z.string().trim().min(1).max(20) });
 const botMacBody = z.object({ enabled: z.boolean() });
 const projectName = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/);
 const projectBody = z.object({ name: projectName });
@@ -60,10 +64,24 @@ app.onError((error, c) => {
 
 app.on(["GET", "POST"], "/api/auth/*", (c) => createAuth(c.env).handler(c.req.raw));
 
-app.post("/api/mac/pair", async (c) => {
-  const body = macPairBody.parse(await c.req.json());
-  const token = await mac(c.env).pair(body.code, body.name);
-  return token === null ? c.json({ error: "Invalid or expired pairing code" }, 400) : c.json({ token }, 201);
+app.get("/mac/install.sh", (c) => c.body(macInstallScript(new URL(c.req.url).origin), 200, { "content-type": "text/x-shellscript; charset=utf-8", "cache-control": "no-store" }));
+
+app.get("/mac/flarebot-local.ts", (c) => c.body(daemonSource, 200, { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" }));
+
+app.post("/api/mac/link", async (c) => {
+  const body = macLinkBody.parse(await c.req.json());
+  const link = await mac(c.env).startLink(body.name);
+  return c.json({ ...link, verifyUrl: `${new URL(c.req.url).origin}/connect-mac?code=${link.userCode}` }, 201);
+});
+
+app.post("/api/mac/link/poll", async (c) => {
+  const body = macPollBody.parse(await c.req.json());
+  return c.json(await mac(c.env).pollLink(body.deviceCode));
+});
+
+app.get("/api/mac/whoami", async (c) => {
+  const token = c.req.header("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
+  return (await mac(c.env).checkToken(token)) ? c.body(null, 204) : c.json({ error: "Not linked" }, 401);
 });
 
 app.get("/api/mac/connect", (c) => mac(c.env).fetch(c.req.raw));
@@ -71,7 +89,11 @@ app.get("/api/mac/connect", (c) => mac(c.env).fetch(c.req.raw));
 app.use("/api/*", requireSession);
 
 app.get("/api/mac", async (c) => c.json(await mac(c.env).status()));
-app.post("/api/mac/pairing-code", async (c) => c.json({ code: await mac(c.env).createPairingCode() }, 201));
+
+app.post("/api/mac/link/approve", async (c) => {
+  const body = macApproveBody.parse(await c.req.json());
+  return (await mac(c.env).approveLink(body.userCode)) ? c.body(null, 204) : c.json({ error: "That code has expired or doesn't match. Start again on the Mac." }, 400);
+});
 
 app.delete("/api/mac", async (c) => {
   await mac(c.env).unpair();
