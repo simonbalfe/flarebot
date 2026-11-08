@@ -9,6 +9,7 @@ import { computerName, userName } from "./env";
 import { type CliSummary, type OwnSkill, ownSkillsDir, type PoolKind, type SkillSummary, scanSkills } from "./pool";
 import type { PoolResult } from "./user";
 import type { McpServerSummary } from "./mcp";
+import { type PushMessage, pushBody } from "./push";
 import { cloneState, commitAll, defaultRepoName, errorMessage, pushClone, type RepoResult } from "./repos";
 import { botExtension, type BotProfile, maxBotHops, type Takeover } from "./tools";
 import { botReply, toTranscriptView, type TranscriptView } from "./view";
@@ -22,6 +23,11 @@ const unfinishedMessage = "I could not finish that.";
 const maxDeliveryAttempts = 5;
 const retryBaseMs = 5_000;
 const threadTitleChars = 40;
+interface PendingNotice {
+  submissionId: SubmissionId;
+  threadId: string | null;
+}
+
 interface GroupReply {
   groupId: string;
   submissionId: SubmissionId;
@@ -109,6 +115,7 @@ export class Bot extends DurableObject<Env> {
   #settlingGroupReplies: Promise<void> = Promise.resolve();
   #draining: Promise<void> = Promise.resolve();
   #saving: Promise<void> = Promise.resolve();
+  #noticing: Promise<void> = Promise.resolve();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -190,6 +197,8 @@ export class Bot extends DurableObject<Env> {
     await this.#arm({ ...this.#harness.wake(), active: true });
     const submission = await this.#root.submit({ type: "input", content: text, requestId: crypto.randomUUID(), whenBusy: "steer" }, context);
     this.ctx.storage.kv.put("lastSubmission", submission.id);
+    this.#awaitNotice({ submissionId: submission.id, threadId: null });
+    this.ctx.waitUntil(submission.wait(context).then(() => this.#queueNotices()));
     await this.#report(true);
   }
 
@@ -231,6 +240,8 @@ export class Bot extends DurableObject<Env> {
     const submission = await conversation.submit({ type: "input", content: text, requestId: crypto.randomUUID(), whenBusy: "steer" }, context);
     const title = thread.title === "" ? text.replace(/\s+/g, " ").trim().slice(0, threadTitleChars) : thread.title;
     this.#updateThread(threadId, { lastSubmission: submission.id, title });
+    this.#awaitNotice({ submissionId: submission.id, threadId });
+    this.ctx.waitUntil(submission.wait(context).then(() => this.#queueNotices()));
   }
 
   async stopThread(threadId: string): Promise<void> {
@@ -645,7 +656,10 @@ export class Bot extends DurableObject<Env> {
     }
     for (const [groupId, { replies, last }] of settled) {
       const text = await this.#groupAnswer(groupId, last);
-      if (text !== null) await this.env.GROUP.getByName(groupId).post(this.#profile().id, text);
+      if (text !== null) {
+        await this.env.GROUP.getByName(groupId).post(this.#profile().id, text);
+        await this.#pushGroupNotice(groupId, text);
+      }
       const finished = replies.map((reply) => reply.submissionId);
       this.ctx.storage.kv.put("pendingGroupReplies", this.#pendingGroupReplies().filter((pending) => !finished.includes(pending.submissionId)));
     }
@@ -666,8 +680,68 @@ export class Bot extends DurableObject<Env> {
     }
   }
 
+  #pendingNotices(): PendingNotice[] {
+    return this.ctx.storage.kv.get<PendingNotice[]>("pendingNotices") ?? [];
+  }
+
+  #awaitNotice(notice: PendingNotice): void {
+    this.ctx.storage.kv.put("pendingNotices", [...this.#pendingNotices(), notice]);
+  }
+
+  #queueNotices(): void {
+    this.#noticing = this.#noticing.then(() => this.#sendNotices()).catch((error: unknown) => console.error(JSON.stringify({ event: "push_failed", error: String(error) })));
+    this.ctx.waitUntil(this.#noticing);
+  }
+
+  async #sendNotices(): Promise<void> {
+    const finished = new Map<string, PendingNotice>();
+    const settledIds: SubmissionId[] = [];
+    for (const notice of this.#pendingNotices()) {
+      const status = await (await this.#harness.submission(notice.submissionId, context))?.status(context);
+      if (status !== undefined && status.status !== "done" && status.status !== "unanswered") continue;
+      settledIds.push(notice.submissionId);
+      if (status === undefined || (status.status === "unanswered" && status.reason === "aborted")) continue;
+      finished.set(notice.threadId ?? "", notice);
+    }
+    if (settledIds.length === 0) return;
+    this.ctx.storage.kv.put("pendingNotices", this.#pendingNotices().filter((notice) => !settledIds.includes(notice.submissionId)));
+    for (const notice of finished.values()) {
+      const message = await this.#noticeFor(notice);
+      if (message !== null) await this.env.USER.getByName(userName).notify(message);
+    }
+  }
+
+  async #noticeFor(notice: PendingNotice): Promise<PushMessage | null> {
+    const profile = this.#profile();
+    const thread = notice.threadId === null ? undefined : this.#openThread(notice.threadId);
+    if (notice.threadId !== null && thread === undefined) return null;
+    const view = thread === undefined ? await this.view() : await this.threadView(thread.id);
+    if (view.busy) return null;
+    const answer = view.items.findLast((item) => item.kind === "assistant");
+    const text = answer?.kind === "assistant" ? answer.text : (view.error ?? unfinishedMessage);
+    const query = new URLSearchParams({ bot: profile.id, ...(thread === undefined ? {} : { thread: thread.id }) });
+    return {
+      title: thread === undefined || thread.title === "" ? profile.name : `${profile.name} · ${thread.title}`,
+      body: pushBody(text),
+      tag: thread === undefined ? profile.id : thread.id,
+      url: `/?${query}`,
+    };
+  }
+
+  async #pushGroupNotice(groupId: string, text: string): Promise<void> {
+    try {
+      const user = this.env.USER.getByName(userName);
+      const group = (await user.groups()).find((candidate) => candidate.id === groupId);
+      const profile = this.#profile();
+      await user.notify({ title: group === undefined ? profile.name : `${profile.name} in ${group.name}`, body: pushBody(text), tag: groupId, url: `/?${new URLSearchParams({ group: groupId })}` });
+    } catch (error) {
+      console.error(JSON.stringify({ event: "push_failed", error: String(error) }));
+    }
+  }
+
   async #settle(): Promise<void> {
     await this.#report(false);
+    this.#queueNotices();
     const recipients = this.#replyTo();
     if (recipients.length === 0) return;
     this.ctx.storage.kv.delete("replyTo");

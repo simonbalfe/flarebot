@@ -1,4 +1,4 @@
-const shellCache = "flarebot-shell-v3";
+const shellCache = "flarebot-shell-v4";
 const serverPaths = ["/api/", "/mac/"];
 
 self.addEventListener("install", (event) => {
@@ -29,5 +29,33 @@ self.addEventListener("fetch", (event) => {
         return response;
       })
       .catch(() => caches.match("/").then((cached) => cached ?? Response.error())),
+  );
+});
+
+self.addEventListener("push", (event) => {
+  const message = event.data?.json() ?? {};
+  const title = typeof message.title === "string" ? message.title : "flarebot";
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body: typeof message.body === "string" ? message.body : "",
+      tag: typeof message.tag === "string" ? message.tag : undefined,
+      icon: "/icon-192.png",
+      badge: "/icon-192.png",
+      data: { url: typeof message.url === "string" ? message.url : "/" },
+    }),
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const target = new URL(event.notification.data?.url ?? "/", self.location.origin);
+  if (target.origin !== self.location.origin) return;
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((windows) => {
+      const open = windows.find((client) => new URL(client.url).origin === self.location.origin);
+      if (open === undefined) return self.clients.openWindow(target.href);
+      open.postMessage({ type: "flarebot-open", url: target.pathname + target.search });
+      return open.focus();
+    }),
   );
 });

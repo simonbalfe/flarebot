@@ -390,7 +390,17 @@ Install on Android: open the site in Chrome, then menu → **Install app**. On i
 **Limits:**
 - Chrome's **Desktop site** setting makes the page ignore the mobile viewport, so a phone shows the desktop layout until it's switched off.
 - In portrait the live view is a landscape desktop fitted to a narrow screen; turn the phone sideways to take over.
-- No push notifications yet.
+- Push needs the installed app on iPhone (iOS 16.4+); Safari tabs can't subscribe. Push is off in `bun run dev`, which registers no service worker.
+
+### Push notifications
+
+The bell in the chat list footer turns push on for that device.
+
+1. `src/web/push.ts` asks for permission, fetches the public key from `GET /api/push/key`, subscribes through the service worker and saves the subscription with `POST /api/push/subscriptions`. Turning it off calls `DELETE /api/push/subscriptions`.
+2. `User` keeps the subscriptions and a VAPID key pair it generates on first use, both in its own storage.
+3. `Bot` records each message you send to it or one of its threads. When that run settles, it sends the last answer, or the error, as a notification. Group replies notify as they're posted. Bot to Bot mailbox runs and stopped runs don't notify.
+4. `src/worker/push.ts` encrypts the payload (RFC 8291, `aes128gcm`) and signs a VAPID JWT with Web Crypto. Endpoints that answer 404 or 410 are dropped.
+5. `public/sw.js` shows the notification, tagged per Bot, thread or group so a newer one replaces the old. Tapping it focuses the app and opens that chat (`/?bot=`, `&thread=`, or `/?group=`).
 
 ## Deploying
 

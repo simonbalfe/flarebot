@@ -1,6 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import { listTools, type McpServerConfig, type McpServerSummary, serverSummary } from "./mcp";
 import { addCli, type CliSummary, ensurePool, inspectSkill, type PoolKind, publishCli, publishSkill, removeItem, unpackUpload } from "./pool";
+import { createVapidKeys, type PushMessage, type PushSubscriptionInput, sendPush, type VapidKeys } from "./push";
 import { projectExists } from "./repos";
 import type { BotProfile } from "./tools";
 
@@ -235,6 +236,46 @@ export class User extends DurableObject<Env> {
   async removeMcpServer(id: string): Promise<void> {
     this.ctx.storage.kv.put("mcpServers", this.#mcpServers().filter((server) => server.id !== id));
     await Promise.allSettled(this.#bots().map((bot) => this.env.BOT.getByName(bot.id).disableMcpServer(id)));
+  }
+
+  async pushPublicKey(): Promise<string> {
+    return (await this.#vapidKeys()).publicKey;
+  }
+
+  addPushSubscription(subscription: PushSubscriptionInput): void {
+    this.ctx.storage.kv.put("pushSubscriptions", [...this.#pushSubscriptions().filter((current) => current.endpoint !== subscription.endpoint), subscription]);
+  }
+
+  removePushSubscription(endpoint: string): void {
+    this.ctx.storage.kv.put("pushSubscriptions", this.#pushSubscriptions().filter((current) => current.endpoint !== endpoint));
+  }
+
+  async notify(message: PushMessage): Promise<void> {
+    const subscriptions = this.#pushSubscriptions();
+    if (subscriptions.length === 0) return;
+    const keys = await this.#vapidKeys();
+    const outcomes = await Promise.all(subscriptions.map((subscription) => sendPush(keys, this.env.FLAREBOT_APP_URL, subscription, message).catch((error: unknown) => {
+      console.error(JSON.stringify({ event: "push_failed", error: String(error) }));
+      return "failed" as const;
+    })));
+    const gone = subscriptions.filter((_, index) => outcomes[index] === "gone").map((subscription) => subscription.endpoint);
+    if (gone.length > 0) this.ctx.storage.kv.put("pushSubscriptions", this.#pushSubscriptions().filter((current) => !gone.includes(current.endpoint)));
+  }
+
+  #pushSubscriptions(): PushSubscriptionInput[] {
+    return this.ctx.storage.kv.get<PushSubscriptionInput[]>("pushSubscriptions") ?? [];
+  }
+
+  async #vapidKeys(): Promise<VapidKeys> {
+    const stored = this.ctx.storage.kv.get<VapidKeys>("vapidKeys");
+    if (stored !== undefined) return stored;
+    return this.ctx.blockConcurrencyWhile(async () => {
+      const existing = this.ctx.storage.kv.get<VapidKeys>("vapidKeys");
+      if (existing !== undefined) return existing;
+      const created = await createVapidKeys();
+      this.ctx.storage.kv.put("vapidKeys", created);
+      return created;
+    });
   }
 
   #mcpServers(): McpServerConfig[] {

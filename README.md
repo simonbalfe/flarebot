@@ -36,7 +36,8 @@ Inspired by the UX of [Grok Bot](https://docs.x.ai/grok-bot/overview).
 | Your own Mac as native Bot tools, through the `flarebot-local` daemon, with allowed folders and an approval dialog per action | Built, run by a Bot on live |
 | One-line Mac install with a LaunchAgent, a folder picker and browser approval instead of pairing codes | Built, link flow and daemon tested locally |
 | Connected apps, MCP OAuth sign-in, Vault | Planned |
-| Push notifications, voice | Planned |
+| Push notifications when a Bot finishes, from the bell in the chat list | Built, encryption and signing checked locally |
+| Voice | Planned |
 
 ## Quick start
 

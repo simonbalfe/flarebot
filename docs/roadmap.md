@@ -10,7 +10,7 @@
 | 3. Trust | Approval cards, permissions, Secure Form, action log | Next |
 | 4. Reuse | Skills, routines, test, dry run, run history | Per-Bot skills built |
 | 5. Many Bots | Pinning, a tab and folder per Bot, roles, group chats | Tab and folder per Bot, roles, queued Bot messaging and group chats built |
-| 6. Everywhere | Push, dictation, email and webhook triggers, voice | Planned |
+| 6. Everywhere | Push, dictation, email and webhook triggers, voice | Push built |
 
 ## Test on real Cloudflare
 
@@ -31,7 +31,6 @@
 | Mac follow-ups | Approvals in the flarebot UI as well as the Mac dialog, screenshots, a menu bar app, a signed binary instead of Bun |
 | Durable files | One Cloudflare Artifacts repo per Bot, cloned on boot and pushed after `save_skill` and before sleep |
 | Model routing | AI Gateway, for cost logs and limits |
-| Push | Web Push from a PWA |
 
 ## Cost estimate
 

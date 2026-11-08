@@ -33,6 +33,8 @@ Run both checks after every code change. Docker or OrbStack must be running for 
 | `src/worker/mcp.ts` | Remote MCP servers through `@earendil-works/pi-mcp`: list tools, call a tool |
 | `src/worker/computer.ts` | `Computer` Durable Object: container, commands, snapshots, a browser tab per Bot |
 | `src/worker/auth.ts` | Better Auth email codes and the API session check |
+| `src/worker/push.ts` | Web Push: VAPID keys, payload encryption, send |
+| `src/web/push.ts` | Notification permission, subscribe and unsubscribe, opening a chat from a notification |
 | `src/web/mobile.ts` | Phone breakpoint hook and the visible-viewport height for the keyboard |
 | `public/` | PWA manifest, icons and service worker |
 | `migrations/` | D1 schema for Better Auth |

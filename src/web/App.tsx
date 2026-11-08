@@ -1,5 +1,5 @@
 import { Button, createKumoToastManager, Dialog, DropdownMenu, Input, Select, Sidebar, Toasty } from "@cloudflare/kumo";
-import { CaretLeftIcon, CaretRightIcon, CheckIcon, CopyIcon, LockSimpleIcon, MagnifyingGlassIcon, MonitorIcon, PlusIcon, SignOutIcon, UploadSimpleIcon, UsersThreeIcon, XIcon } from "@phosphor-icons/react";
+import { BellIcon, BellSlashIcon, CaretLeftIcon, CaretRightIcon, CheckIcon, CopyIcon, LockSimpleIcon, MagnifyingGlassIcon, MonitorIcon, PlusIcon, SignOutIcon, UploadSimpleIcon, UsersThreeIcon, XIcon } from "@phosphor-icons/react";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { api, type BotSummary, type BotView, type CliSummary, type ComputerStatus, type GroupSummary, isSignedIn, type MacStatus, type McpServerSummary, type OwnSkill, type PoolKind, type SkillSummary, type ThreadSummary } from "./api";
 import { authClient } from "./auth";
@@ -10,6 +10,7 @@ import { useIsMobile } from "./mobile";
 import { ComputerPanel, TakeOver } from "./Computer";
 import { formatListTime } from "./format";
 import { GroupAvatars, GroupPane } from "./Group";
+import { currentPushSubscription, disablePush, enablePush, onNotificationOpen, pushSupported } from "./push";
 import "./theme";
 import { SignIn } from "./SignIn";
 import { Transcript } from "./Transcript";
@@ -115,6 +116,33 @@ function GroupRow({ group, bots, active, onOpen }: { group: GroupSummary; bots: 
   );
 }
 
+function PushToggle() {
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (!pushSupported()) return;
+    void currentPushSubscription().then((subscription) => setEnabled(subscription !== null && Notification.permission === "granted"));
+  }, []);
+  if (enabled === null) return null;
+  const toggle = async () => {
+    try {
+      if (enabled) {
+        await disablePush();
+        setEnabled(false);
+        return;
+      }
+      if (await enablePush()) setEnabled(true);
+      else toasts.add({ title: "Notifications are blocked", variant: "error" });
+    } catch (error) {
+      toasts.add({ title: "Something went wrong", description: error instanceof Error ? error.message : String(error), variant: "error" });
+    }
+  };
+  return (
+    <button type="button" aria-label={enabled ? "Turn off notifications" : "Turn on notifications"} aria-pressed={enabled} className={iconButton} onClick={() => void toggle()}>
+      {enabled ? <BellIcon size={14} /> : <BellSlashIcon size={14} />}
+    </button>
+  );
+}
+
 type ChatListProps = { bots: BotSummary[]; groups: GroupSummary[]; currentId: string | null; currentGroupId: string | null; onOpen: (id: string) => void; onOpenGroup: (id: string) => void; onNew: () => void; onNewGroup: () => void; onEditBot: (bot: BotSummary) => void; onDeleteBot: (bot: BotSummary) => void; onRenameGroup: (group: GroupSummary) => void; onDeleteGroup: (group: GroupSummary) => void };
 
 function ChatList({ bots, groups, currentId, currentGroupId, onOpen, onOpenGroup, onNew, onNewGroup, onEditBot, onDeleteBot, onRenameGroup, onDeleteGroup, mobile }: ChatListProps & { mobile: boolean }) {
@@ -151,6 +179,7 @@ function ChatList({ bots, groups, currentId, currentGroupId, onOpen, onOpenGroup
       <div className={`flex shrink-0 items-center gap-2 px-3.5 pt-2 ${mobile ? "fb-safe-bottom" : "h-[50px] pb-3.5"}`}>
         <span className="grid size-7 shrink-0 place-items-center rounded-full bg-fb-active text-[10px] font-medium text-fb-preview">Y</span>
         <span className="fb-callout min-w-0 flex-1 truncate">You</span>
+        <PushToggle />
         <button type="button" aria-label="Sign out" className={iconButton} onClick={() => void authClient.signOut().then(() => window.location.reload())}><SignOutIcon size={14} /></button>
       </div>
     </div>
@@ -541,6 +570,30 @@ function Workspace() {
     };
     window.addEventListener("popstate", onBack);
     return () => window.removeEventListener("popstate", onBack);
+  }, []);
+
+  const mobileRef = useRef(mobile);
+  mobileRef.current = mobile;
+  useEffect(() => {
+    const openTarget = (url: URL) => {
+      const bot = url.searchParams.get("bot");
+      const group = url.searchParams.get("group");
+      if (bot === null && group === null) return;
+      setPanel(null);
+      if (group !== null) setCurrentGroupId(group);
+      else {
+        setCurrentGroupId(null);
+        setCurrentId(bot);
+        setThreadId(url.searchParams.get("thread"));
+      }
+      if (mobileRef.current) {
+        window.history.replaceState({ flarebot: "list" }, "", "/");
+        window.history.pushState({ flarebot: "chat" }, "", "/");
+        setMobileChat(true);
+      } else window.history.replaceState(null, "", "/");
+    };
+    openTarget(new URL(window.location.href));
+    return onNotificationOpen(openTarget);
   }, []);
 
   const lastError = useRef({ message: "", at: 0 });

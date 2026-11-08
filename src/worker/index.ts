@@ -5,6 +5,7 @@ import { createAuth, requireSession } from "./auth";
 import daemonSource from "../../scripts/flarebot-local.ts?raw";
 import { macInstallScript } from "./mac-install";
 import { cliNamePattern } from "./pool";
+import { pushSubscriptionSchema } from "./push";
 import { type AppEnv, computerName, macName, models, userName } from "./env";
 
 export { Bot } from "./bot";
@@ -51,6 +52,7 @@ const fileQuery = z.object({
   path: z.string().regex(/^\/workspace\/(?!.*\.\.)[A-Za-z0-9._\/-]+$/),
   executable: z.enum(["0", "1"]).default("0"),
 });
+const pushUnsubscribeBody = z.object({ endpoint: z.url() });
 const vncPrefix = "/api/computer/vnc";
 
 const app = new Hono<AppEnv>();
@@ -270,6 +272,20 @@ app.put("/api/bots/:id/model", async (c) => {
   const bot = await ownedBot(c.env, id);
   await bot.setModel(body.model);
   await user(c.env).updateBot(id, { model: body.model });
+  return c.body(null, 204);
+});
+
+app.get("/api/push/key", async (c) => c.json({ publicKey: await user(c.env).pushPublicKey() }));
+
+app.post("/api/push/subscriptions", async (c) => {
+  const body = pushSubscriptionSchema.parse(await c.req.json());
+  await user(c.env).addPushSubscription(body);
+  return c.body(null, 204);
+});
+
+app.delete("/api/push/subscriptions", async (c) => {
+  const body = pushUnsubscribeBody.parse(await c.req.json());
+  await user(c.env).removePushSubscription(body.endpoint);
   return c.body(null, 204);
 });
 
