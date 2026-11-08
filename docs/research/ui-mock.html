@@ -237,7 +237,7 @@ const bots = [
   {
     id: "flare", name: "Flare", label: "Chief of staff", shape: "drop", color: "#f26b1d", primary: true, time: "9:02 AM", last: "3 things need you today. the renewal is first.",
     model: "Claude Sonnet 5.5",
-    memory: ["Simon is in London, Europe/London time", "Prefers short, direct updates", "Morning brief goes out at 8:30 on weekdays"],
+    memory: ["Uses 24-hour times", "Prefers short, direct updates", "Morning brief goes out at 8:30 on weekdays"],
     tools: [["Gmail", "Read", "Allow"], ["Gmail", "Send", "Ask"], ["Calendar", "Create events", "Ask"], ["Your Mac", "Run commands", "Ask"], ["Browser", "Purchases", "Never"]],
     skills: ["Morning brief", "Weekly review"],
     routines: [{ name: "Morning brief", when: "Weekdays at 8:30", next: "Mon 8:30", on: true, runs: "sssssfsssss" }],
@@ -252,7 +252,7 @@ const bots = [
   {
     id: "inbox", name: "Inbox Manager", label: "Email and calendar", shape: "blob", color: "#5b5ce2", time: "5:37 PM", last: "draft for dana is ready to send.", unread: true,
     model: "Claude Sonnet 5.5",
-    memory: ["Never archive anything from clients", "Draft replies in Simon's voice", "Newsletters can be archived without asking"],
+    memory: ["Never archive anything from clients", "Draft replies in the user's voice", "Newsletters can be archived without asking"],
     tools: [["Gmail", "Read", "Allow"], ["Gmail", "Draft", "Allow"], ["Gmail", "Send", "Ask"], ["Calendar", "Create events", "Ask"]],
     skills: ["Inbox sweep"],
     routines: [
@@ -267,7 +267,7 @@ const bots = [
       { t: "tool", v: "Used Gmail 58 times", steps: ["Searched 41 threads", "Archived 26", "Replied to 9 routine threads", "Saved 6 drafts"] },
       { t: "bot", v: "<span class=check>✓ <b>Archived</b> → 26 newsletters and receipts</span><span class=check>✓ <b>Replied</b> → 9 routine threads</span><span class=check>✓ <b>Drafted</b> → 6 held for your read</span><span class=check>✓ <b>Flagged</b> → 1 contract question from dana</span>" },
       { t: "bot", v: "dana's asking whether the renewal covers the new seats. draft below." },
-      { t: "draft", id: "dana", to: "dana@example.com", subject: "Re: Renewal and new seats", body: "Hi Dana,\n\nYes, the renewal covers the new seats from the start of the next term. Clause 4.2 has the details.\n\nSimon", state: "open" },
+      { t: "draft", id: "dana", to: "dana@example.com", subject: "Re: Renewal and new seats", body: "Hi Dana,\n\nYes, the renewal covers the new seats from the start of the next term. Clause 4.2 has the details.\n\nAlex", state: "open" },
       { t: "cost", v: "$0.31 · 58 tools" }
     ]
   },
@@ -335,7 +335,7 @@ const groups = [
 const apps = [
   { id: "gmail", name: "Gmail", detail: "2 accounts", color: "#d9503f", on: true },
   { id: "calendar", name: "Google Calendar", detail: "1 account", color: "#3f82f0", on: true },
-  { id: "github", name: "GitHub", detail: "simonbalfe", color: "#333", on: true },
+  { id: "github", name: "GitHub", detail: "1 account", color: "#333", on: true },
   { id: "slack", name: "Slack", detail: "", color: "#6a2a84", on: false },
   { id: "linear", name: "Linear", detail: "1 workspace", color: "#5b5ce2", on: true },
   { id: "notion", name: "Notion", detail: "", color: "#555", on: false }
@@ -370,7 +370,7 @@ function renderSidebar() {
     <div class="list">${rows}</div>
     <button class="side-link" data-act="apps">${icon.apps} Connect apps</button>
     <div class="foot">
-      <button class="me-btn" data-act="settings"><span class="me-av">SB</span><span style="min-width:0"><span style="font-size:13px">Simon Balfe</span><span class="spend">$12.40 of $40 this week</span></span></button>
+      <button class="me-btn" data-act="settings"><span class="me-av">Y</span><span style="min-width:0"><span style="font-size:13px">You</span><span class="spend">$12.40 of $40 this week</span></span></button>
     </div>`;
 }
 
@@ -565,7 +565,7 @@ function renderOverlay() {
       <div class="app-row"><span class="t"></span><button class="btn" data-toast="Add MCP server">Add server</button></div>
       <div class="lab">Computers</div>
       <div class="app-row"><span class="app-ic" style="background:#f26b1d">C</span><span class="t">Cloud computer<small>Sleeping</small></span><button class="btn" data-toast="Waking">Wake</button></div>
-      <div class="app-row"><span class="app-ic" style="background:#555">M</span><span class="t">Simon's Mac<small>Online · flarebot-local</small></span><span class="seg"><button data-toast="Always allow">Always</button><button class="on" data-toast="Ask every time">Ask</button><button data-toast="Never allow">Never</button></span></div>
+      <div class="app-row"><span class="app-ic" style="background:#555">M</span><span class="t">Your Mac<small>Online · flarebot-local</small></span><span class="seg"><button data-toast="Always allow">Always</button><button class="on" data-toast="Ask every time">Ask</button><button data-toast="Never allow">Never</button></span></div>
     </div></div>`;
     return;
   }

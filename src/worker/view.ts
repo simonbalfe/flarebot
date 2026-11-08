@@ -20,6 +20,10 @@ export interface TranscriptView {
 const detailLimit = 200;
 const botMessagePattern = /^\[Message from Bot: ([^\]]+)\]\n([\s\S]*)$/;
 
+export function groupMessage(group: string, from: string, text: string, context: string): string {
+  return `[Message in group: ${group} from: ${from}]\n${text}\n[Recent group messages]\n${context}`;
+}
+
 export function botMessage(from: string, text: string): string {
   return `[Message from Bot: ${from}]\n${text}`;
 }

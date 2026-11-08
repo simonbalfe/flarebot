@@ -1,4 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
+import { z } from "zod";
+import browserTabScript from "../../computer/browser-tab.mjs?raw";
 
 const idleMs = 10 * 60 * 1000;
 const idleCheckMs = 60 * 1000;
@@ -8,6 +10,7 @@ const readyAttempts = 120;
 const readyDelayMs = 500;
 const maxOutputChars = 30_000;
 const browserQuitSeconds = 2;
+const browserActionSeconds = 60;
 
 export interface ExecResult {
   exitCode: number;
@@ -19,7 +22,26 @@ export interface ComputerStatus {
   running: boolean;
 }
 
+export type BrowserAction =
+  | { type: "show" }
+  | { type: "navigate"; url: string }
+  | { type: "screenshot" }
+  | { type: "click"; x: number; y: number }
+  | { type: "type"; text: string }
+  | { type: "key"; key: string }
+  | { type: "scroll"; x: number; y: number; deltaY: number };
+
+const browserOutputSchema = z.object({
+  targetId: z.string().min(1),
+  image: z.string().optional(),
+  page: z.object({ url: z.string(), title: z.string() }),
+});
+
+export type BrowserResult = Omit<z.infer<typeof browserOutputSchema>, "targetId">;
+
 export class Computer extends DurableObject<Env> {
+  #browserQueue: Promise<unknown> = Promise.resolve();
+
   status(): ComputerStatus {
     const running = this.#container().running;
     if (running) this.#touch();
@@ -40,28 +62,36 @@ export class Computer extends DurableObject<Env> {
     const container = this.#container();
     if (container.running) await container.destroy();
     this.ctx.storage.kv.delete("snapshot");
+    this.ctx.storage.kv.delete("tabs");
     return { running: false };
   }
 
   async importCookies(cookies: unknown[]): Promise<unknown> {
-    const container = await this.#ensureReady();
-    const process = await container.exec(["node", "--experimental-websocket", "/usr/local/lib/import-cookies.mjs"], { stdin: "pipe" });
-    const writer = process.stdin?.getWriter();
-    if (writer === undefined) throw new Error("The cookie import has no stdin");
-    await writer.write(new TextEncoder().encode(JSON.stringify(cookies)));
-    await writer.close();
-    const result = await process.output();
-    this.#touch();
-    const decoder = new TextDecoder();
-    if (result.exitCode !== 0) throw new Error(decoder.decode(result.stderr).slice(-maxOutputChars));
-    return JSON.parse(decoder.decode(result.stdout));
+    const stdout = await this.#runWithInput(["node", "--experimental-websocket", "/usr/local/lib/import-cookies.mjs"], new TextEncoder().encode(JSON.stringify(cookies)));
+    return JSON.parse(stdout);
   }
 
-  async exec(argv: string[], timeoutSeconds: number): Promise<ExecResult> {
+  async writeFile(path: string, contents: Uint8Array, executable: boolean): Promise<void> {
+    const script = 'mkdir -p "$(dirname "$1")" && cat > "$1" && if [ "$2" = "1" ]; then chmod +x "$1"; fi';
+    await this.#runWithInput(["sh", "-c", script, "write-file", path, executable ? "1" : "0"], contents);
+  }
+
+  browser(botId: string, action: BrowserAction): Promise<BrowserResult> {
+    const run = this.#browserQueue.then(() => this.#runBrowserAction(botId, action));
+    this.#browserQueue = run.catch(() => undefined);
+    return run;
+  }
+
+  async showTab(botId: string): Promise<void> {
+    if (!this.#container().running) return;
+    await this.browser(botId, { type: "show" });
+  }
+
+  async exec(argv: string[], timeoutSeconds: number, env: Record<string, string> = {}): Promise<ExecResult> {
     const container = await this.#ensureReady();
     const process = await container.exec(["timeout", "--kill-after=5", String(timeoutSeconds), ...argv], {
       cwd: "/workspace",
-      env: { DISPLAY: ":1", HOME: "/home/bot" },
+      env: { ...env, DISPLAY: ":1", HOME: "/home/bot" },
     });
     const result = await process.output();
     this.#touch();
@@ -73,19 +103,11 @@ export class Computer extends DurableObject<Env> {
     };
   }
 
-  async screenshot(): Promise<string> {
-    const container = await this.#ensureReady();
-    const process = await container.exec(["bash", "-c", "scrot -o /tmp/screen.png && base64 -w0 /tmp/screen.png"], {
-      env: { DISPLAY: ":1" },
-    });
-    const result = await process.output();
-    if (result.exitCode !== 0) throw new Error(new TextDecoder().decode(result.stderr));
-    return new TextDecoder().decode(result.stdout);
-  }
-
   override async fetch(request: Request): Promise<Response> {
     const container = await this.#ensureReady();
-    return container.getTcpPort(vncPort).fetch(request);
+    const url = new URL(request.url);
+    url.protocol = "http:";
+    return container.getTcpPort(vncPort).fetch(new Request(url, request));
   }
 
   override async alarm(): Promise<void> {
@@ -108,6 +130,35 @@ export class Computer extends DurableObject<Env> {
     this.ctx.storage.kv.put("lastActive", Date.now());
   }
 
+  #tabs(): Record<string, string> {
+    return this.ctx.storage.kv.get<Record<string, string>>("tabs") ?? {};
+  }
+
+  async #runBrowserAction(botId: string, action: BrowserAction): Promise<BrowserResult> {
+    const request = { targetId: this.#tabs()[botId] ?? null, action };
+    const stdout = await this.#runWithInput(
+      ["timeout", "--kill-after=5", String(browserActionSeconds), "node", "--experimental-websocket", "--input-type=module", "-e", browserTabScript],
+      new TextEncoder().encode(JSON.stringify(request)),
+    );
+    const { targetId, ...result } = browserOutputSchema.parse(JSON.parse(stdout));
+    this.ctx.storage.kv.put("tabs", { ...this.#tabs(), [botId]: targetId });
+    return result;
+  }
+
+  async #runWithInput(argv: string[], input: Uint8Array): Promise<string> {
+    const container = await this.#ensureReady();
+    const process = await container.exec(argv, { stdin: "pipe" });
+    const writer = process.stdin?.getWriter();
+    if (writer === undefined) throw new Error(`${argv[0] ?? "The command"} has no stdin`);
+    await writer.write(input);
+    await writer.close();
+    const result = await process.output();
+    this.#touch();
+    const decoder = new TextDecoder();
+    if (result.exitCode !== 0) throw new Error(decoder.decode(result.stderr).slice(-maxOutputChars) || `exit code ${result.exitCode}`);
+    return decoder.decode(result.stdout);
+  }
+
   async #sleep(): Promise<void> {
     const container = this.#container();
     if (!container.running) return;
@@ -115,6 +166,7 @@ export class Computer extends DurableObject<Env> {
     await quit.output();
     const snapshot = await container.snapshotContainer();
     this.ctx.storage.kv.put("snapshot", snapshot);
+    this.ctx.storage.kv.delete("tabs");
     await container.destroy();
     await this.ctx.storage.deleteAlarm();
   }

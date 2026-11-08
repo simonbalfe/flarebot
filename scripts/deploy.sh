@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+export CLOUDFLARE_ACCOUNT_ID="$(sec get FLAREBOT_CLOUDFLARE_ACCOUNT_ID)"
+domain="$(sec get FLAREBOT_DOMAIN)"
+
+bun run build
+bunx wrangler d1 migrations apply AUTH_DB --remote --config wrangler.jsonc
+bunx wrangler deploy --domain "$domain"
+
+secrets_json() {
+  sec run -- bun -e '
+    const names = ["OPENROUTER_API_KEY", "BETTER_AUTH_SECRET", "FLAREBOT_ALLOWED_EMAILS", "FLAREBOT_MAIL_FROM"];
+    const secrets = Object.fromEntries(names.map((name) => [name, process.env[name]]));
+    console.log(JSON.stringify({ ...secrets, FLAREBOT_APP_URL: `https://${process.env.FLAREBOT_DOMAIN}` }));
+  '
+}
+
+secrets_json | bunx wrangler secret bulk

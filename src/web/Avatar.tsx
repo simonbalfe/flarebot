@@ -18,12 +18,33 @@ export function colorOf(index: number): string {
   return colorsOf(index).main;
 }
 
+export interface MentionOption {
+  name: string;
+  index: number | null;
+}
+
+export function botMentions(bots: { name: string }[]): MentionOption[] {
+  return bots.map((bot, index) => ({ name: bot.name, index }));
+}
+
 export function Avatar({ index, size = 32 }: { index: number; size?: number }) {
   const { main, accent } = colorsOf(index);
   const colors = { "--bot-main": main, "--bot-accent": accent } as CSSProperties;
   return (
     <span style={{ ...colors, width: size, height: size }} className="grid shrink-0 place-items-center">
       <CloudflareLogo variant="glyph" aria-hidden="true" width={size} className="h-auto [&_path:first-of-type]:fill-(--bot-main) [&_path:last-of-type]:fill-(--bot-accent)" />
+    </span>
+  );
+}
+
+export function MentionChip({ mention }: { mention: MentionOption }) {
+  if (mention.index === null) {
+    return <span className="inline-flex items-center rounded-full bg-fb-pane px-1.5 align-baseline font-semibold text-fb-text">@{mention.name}</span>;
+  }
+  return (
+    <span style={{ color: colorOf(mention.index) }} className="inline-flex items-center gap-1 rounded-full bg-fb-pane px-1.5 align-baseline font-semibold">
+      <Avatar index={mention.index} size={16} />
+      {mention.name}
     </span>
   );
 }

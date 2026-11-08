@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>flarebot architecture</title>
+<style>
+:root{color-scheme:light dark;--fg:light-dark(#0b0b0b,#f7f7f7);--paper:light-dark(#fff,#0b0b0b);--new:#ff7a1a}
+body{margin:0;padding:24px 16px;background:var(--paper)}
+svg{display:block;width:100%;max-width:880px;height:auto;margin:0 auto;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+text{fill:var(--fg)}
+.t{font-size:16px;font-weight:700}
+.s{font-size:13px;font-weight:500}
+.l{font-size:13px;font-weight:600}
+.fl{font-size:12px;font-weight:700;letter-spacing:.06em}
+.frame{fill:none;stroke:var(--fg);stroke-width:1.5;stroke-dasharray:2 5;stroke-linecap:round}
+.b{fill:var(--paper);stroke:var(--fg);stroke-width:2}
+.n{fill:var(--new);stroke:var(--new);stroke-width:2}
+.nt{fill:#0b0b0b;font-size:16px;font-weight:700}
+.ns{fill:#0b0b0b;font-size:13px;font-weight:600}
+.e{stroke:var(--fg);stroke-width:2;fill:none}
+.en{stroke:var(--new);stroke-width:3;fill:none}
+.ah{fill:var(--fg)}
+.ahn{fill:var(--new)}
+</style>
+</head>
+<body>
+<svg viewBox="0 0 720 650" role="img" aria-label="flarebot architecture">
+<defs>
+<marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah" d="M0 0L10 5L0 10z"/></marker>
+<marker id="an" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path class="ahn" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+
+<rect class="b" x="560" y="14" width="18" height="18" rx="4"/>
+<text class="s" x="585" y="28">Built</text>
+<rect class="n" x="632" y="14" width="18" height="18" rx="4"/>
+<text class="s" x="657" y="28">New</text>
+
+<rect class="frame" x="8" y="72" width="704" height="490" rx="16"/>
+<text class="fl" x="24" y="94">CLOUDFLARE</text>
+<rect class="frame" x="24" y="302" width="672" height="244" rx="12"/>
+<text class="fl" x="40" y="324">CONTAINER</text>
+
+<path class="e" d="M360 54V112" marker-end="url(#a)"/>
+<path class="e" d="M320 160V176H165V190" marker-end="url(#a)"/>
+<path class="e" d="M400 160V176H555V190" marker-end="url(#a)"/>
+<path class="en" d="M270 233H448" marker-end="url(#an)"/>
+<path class="e" d="M490 276V322H380V342" marker-end="url(#a)"/>
+<path class="en" d="M600 276V342" marker-end="url(#an)"/>
+<path class="e" d="M380 410V440" marker-end="url(#a)"/>
+<path class="en" d="M580 410V486H542" marker-end="url(#an)"/>
+<path class="e" d="M360 534V592" marker-end="url(#a)"/>
+
+<text class="l" x="240" y="170" text-anchor="middle">messages</text>
+<text class="l" x="480" y="170" text-anchor="middle">screen</text>
+<text class="l" x="359" y="223" text-anchor="middle">browser tool</text>
+<text class="l" x="435" y="316" text-anchor="middle">screen</text>
+<text class="l" x="610" y="296">exec</text>
+<text class="l" x="590" y="452">CDP</text>
+
+<rect class="b" x="290" y="10" width="140" height="44" rx="22"/>
+<text class="t" x="360" y="38" text-anchor="middle">You</text>
+
+<rect class="b" x="290" y="112" width="140" height="48" rx="10"/>
+<text class="t" x="360" y="142" text-anchor="middle">Worker</text>
+
+<rect class="b" x="60" y="190" width="210" height="86" rx="10"/>
+<text class="t" x="165" y="220" text-anchor="middle">Bot</text>
+<text class="s" x="165" y="242" text-anchor="middle">Durable Object</text>
+<text class="s" x="165" y="260" text-anchor="middle">Pi agent, memory</text>
+
+<rect class="b" x="448" y="190" width="214" height="86" rx="10"/>
+<text class="t" x="555" y="220" text-anchor="middle">Computer</text>
+<text class="s" x="555" y="242" text-anchor="middle">Durable Object</text>
+<text class="s" x="555" y="260" text-anchor="middle">starts, sleeps, restores</text>
+
+<rect class="b" x="300" y="342" width="160" height="68" rx="10"/>
+<text class="t" x="380" y="370" text-anchor="middle">noVNC</text>
+<text class="s" x="380" y="392" text-anchor="middle">shared screen</text>
+
+<rect class="n" x="488" y="342" width="184" height="68" rx="10"/>
+<text class="nt" x="580" y="370" text-anchor="middle">CDP script</text>
+<text class="ns" x="580" y="392" text-anchor="middle">snapshot, click, type</text>
+
+<rect class="b" x="180" y="440" width="360" height="94" rx="10"/>
+<text class="t" x="360" y="464" text-anchor="middle">Chromium</text>
+<text class="s" x="360" y="482" text-anchor="middle" dy="0">shared logins, port 9222</text>
+<rect class="n" x="198" y="492" width="154" height="30" rx="8"/>
+<text class="ns" x="275" y="512" text-anchor="middle">Flare tab</text>
+<rect class="n" x="368" y="492" width="154" height="30" rx="8"/>
+<text class="ns" x="445" y="512" text-anchor="middle">Research tab</text>
+
+<rect class="b" x="280" y="592" width="160" height="40" rx="20"/>
+<text class="t" x="360" y="618" text-anchor="middle">Websites</text>
+</svg>
+</body>
+</html>

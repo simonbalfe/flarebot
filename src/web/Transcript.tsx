@@ -1,10 +1,10 @@
 import { Button, Collapsible } from "@cloudflare/kumo";
-import { CaretRightIcon, HandPalmIcon } from "@phosphor-icons/react";
+import { ArrowBendUpRightIcon, CaretRightIcon, HandPalmIcon, RobotIcon } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { BotSummary, BotView, TranscriptItem } from "./api";
-import { Avatar, colorOf } from "./Avatar";
+import { Avatar, botMentions, colorOf, MentionChip, type MentionOption } from "./Avatar";
 import { formatClock } from "./format";
 
 const timeGapMs = 5 * 60 * 1000;
@@ -31,7 +31,7 @@ function toolsLabel(tools: ToolItem[]): string {
   return tools.length > 1 ? `Used ${names[0]} ${tools.length} times` : `Used ${names[0]}`;
 }
 
-function BotBubble({ text }: { text: string }) {
+export function BotBubble({ text }: { text: string }) {
   return (
     <div className="fb-bubble fb-prose self-start bg-fb-bot text-fb-text">
       <Markdown remarkPlugins={remarkPlugins}>{text}</Markdown>
@@ -39,8 +39,17 @@ function BotBubble({ text }: { text: string }) {
   );
 }
 
-function MyBubble({ text }: { text: string }) {
-  return <div className="fb-bubble self-end whitespace-pre-wrap bg-fb-me text-fb-me-text">{text}</div>;
+function withMentions(text: string, mentions: MentionOption[]) {
+  if (mentions.length === 0) return text;
+  const names = mentions.map((mention) => mention.name).sort((a, b) => b.length - a.length).map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  return text.split(new RegExp(`(@(?:${names.join("|")})(?![\\w-]))`, "gi")).map((part, index) => {
+    const mention = index % 2 === 1 ? mentions.find((candidate) => `@${candidate.name}`.toLowerCase() === part.toLowerCase()) : undefined;
+    return mention === undefined ? part : <MentionChip key={index} mention={mention} />;
+  });
+}
+
+export function MyBubble({ text, mentions = [] }: { text: string; mentions?: MentionOption[] }) {
+  return <div className="fb-bubble self-end whitespace-pre-wrap bg-fb-me text-fb-me-text">{withMentions(text, mentions)}</div>;
 }
 
 function ToolCalls({ tools, live }: { tools: ToolItem[]; live: boolean }) {
@@ -60,13 +69,27 @@ function ToolCalls({ tools, live }: { tools: ToolItem[]; live: boolean }) {
   );
 }
 
-function BotLine({ label, name, bots }: { label: string; name: string; bots: BotSummary[] }) {
+function PeerMessage({ direction, name, text, bots }: { direction: "from" | "to"; name: string; text: string; bots: BotSummary[] }) {
   const index = bots.findIndex((candidate) => candidate.name.toLowerCase() === name.toLowerCase());
+  const color = index === -1 ? "var(--color-fb-time)" : colorOf(index);
+  const shown = bots[index]?.name ?? name;
+  const frame = { borderColor: color, background: `color-mix(in srgb, ${color} 9%, transparent)` };
+  const incoming = direction === "from";
   return (
-    <div className={`${systemLine} pt-2`}>
-      {label}
-      {index === -1 ? null : <Avatar index={index} size={16} />}
-      <span className="text-fb-text">{bots[index]?.name ?? name}</span>
+    <div className={`flex w-full items-start gap-2 pt-2 ${incoming ? "flex-row-reverse" : ""}`}>
+      <span className="mt-[18px] grid size-6 shrink-0 place-items-center">
+        {!incoming ? <ArrowBendUpRightIcon size={16} className="text-fb-time" /> : index === -1 ? <RobotIcon size={18} style={{ color }} /> : <Avatar index={index} size={24} />}
+      </span>
+      <div className={`flex min-w-0 flex-1 flex-col gap-1 ${incoming ? "items-end" : "items-start"}`}>
+        <span className="fb-caption flex items-center gap-1 font-semibold" style={{ color }}>
+          {direction === "to" ? "To" : null}
+          {direction === "to" && index !== -1 ? <Avatar index={index} size={14} /> : null}
+          {shown}
+        </span>
+        <div className={`fb-bubble fb-prose border text-fb-text ${direction === "to" ? "border-dashed" : ""}`} style={frame}>
+          <Markdown remarkPlugins={remarkPlugins}>{text}</Markdown>
+        </div>
+      </div>
     </div>
   );
 }
@@ -74,23 +97,13 @@ function BotLine({ label, name, bots }: { label: string; name: string; bots: Bot
 function RowView({ row, live, bots }: { row: Row; live: boolean; bots: BotSummary[] }) {
   switch (row.kind) {
     case "user":
-      return <MyBubble text={row.text} />;
+      return <MyBubble text={row.text} mentions={botMentions(bots)} />;
     case "assistant":
       return <BotBubble text={row.text} />;
     case "peer":
-      return (
-        <>
-          <BotLine label="Message from" name={row.from} bots={bots} />
-          <BotBubble text={row.text} />
-        </>
-      );
+      return <PeerMessage direction="from" name={row.from} text={row.text} bots={bots} />;
     case "handoff":
-      return (
-        <>
-          <BotLine label="Message to" name={row.to} bots={bots} />
-          <BotBubble text={row.text} />
-        </>
-      );
+      return <PeerMessage direction="to" name={row.to} text={row.text} bots={bots} />;
     case "tools":
       return <ToolCalls tools={row.tools} live={live} />;
     case "cost":
@@ -99,7 +112,7 @@ function RowView({ row, live, bots }: { row: Row; live: boolean; bots: BotSummar
   }
 }
 
-function Thinking({ index }: { index: number }) {
+export function Thinking({ index }: { index: number }) {
   const style = { background: colorOf(index) };
   return (
     <div className="flex items-center gap-1 px-3 py-2 text-xs text-fb-time">
@@ -136,7 +149,7 @@ export function Transcript({ view, bots, pending, onTakeOver }: { view: BotView;
             </div>
           );
         })}
-        {pending === null ? null : <MyBubble text={pending} />}
+        {pending === null ? null : <MyBubble text={pending} mentions={botMentions(bots)} />}
         {view.partial === null ? null : <BotBubble text={view.partial} />}
         {view.busy && view.partial === null ? <Thinking index={botIndex} /> : null}
         {view.takeover === null ? null : (

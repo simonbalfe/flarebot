@@ -8,8 +8,8 @@
 | 1. Chat | Bots, live transcript, steering, tool activity | Done |
 | 2. Computer panel | Preview, take over, hand back | Done |
 | 3. Trust | Approval cards, permissions, Secure Form, action log | Next |
-| 4. Reuse | Skills, routines, test, dry run, run history | Planned |
-| 5. Many Bots | Pinning, per-Bot browser profiles, group chats | Bot messaging done |
+| 4. Reuse | Skills, routines, test, dry run, run history | Per-Bot skills built |
+| 5. Many Bots | Pinning, a tab and folder per Bot, roles, group chats | Tab and folder per Bot, roles, queued Bot messaging and group chats built |
 | 6. Everywhere | Push, dictation, email and webhook triggers, voice | Planned |
 
 ## Test on real Cloudflare
@@ -29,7 +29,7 @@
 | Vault and Secure Form | Encrypted store, filled by a tool outside the model |
 | Connectors and MCP | Connected once in `User`, enabled per Bot |
 | Control of your Mac | `flarebot-local` daemon on an outbound WebSocket, asking every time by default |
-| Durable files | R2 |
+| Durable files | One Cloudflare Artifacts repo per Bot, cloned on boot and pushed after `save_skill` and before sleep |
 | Model routing | AI Gateway, for cost logs and limits |
 | Push | Web Push from a PWA |
 
@@ -48,5 +48,6 @@ For one user over a 30-day month, from [Containers pricing](https://developers.c
 | Decision | Recommendation |
 | --- | --- |
 | Personal tool or product | Personal first, keeping one computer per user |
-| Login isolation | One browser profile per Bot |
+| Login isolation | Shared logins in one Chrome profile, with a window per Bot |
+| Durable Bot files | One Cloudflare Artifacts repo per Bot for its folder, with browser state kept in snapshots |
 | Models for a product | Choose a provider whose terms allow it |

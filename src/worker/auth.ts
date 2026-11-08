@@ -1,34 +1,63 @@
+import { betterAuth } from "better-auth";
+import { magicLink } from "better-auth/plugins";
 import { createMiddleware } from "hono/factory";
 import { HTTPException } from "hono/http-exception";
-import { createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey } from "jose";
+import { renderSignInEmail } from "./emails";
 import type { AppEnv } from "./env";
 
-const keySets = new Map<string, JWTVerifyGetKey>();
+const linkLifetimeSeconds = 10 * 60;
+const sessionLifetimeSeconds = 30 * 24 * 60 * 60;
 
-function teamKeys(teamDomain: string): JWTVerifyGetKey {
-  let keys = keySets.get(teamDomain);
-  if (keys === undefined) {
-    keys = createRemoteJWKSet(new URL(`https://${teamDomain}/cdn-cgi/access/certs`));
-    keySets.set(teamDomain, keys);
-  }
-  return keys;
+function isAllowed(env: Env, email: string): boolean {
+  const allowed = env.FLAREBOT_ALLOWED_EMAILS.split(",").map((address) => address.trim().toLowerCase());
+  return allowed.includes(email.trim().toLowerCase());
 }
 
-export const requireAccess = createMiddleware<AppEnv>(async (c, next) => {
+export function createAuth(env: Env) {
+  return betterAuth({
+    baseURL: env.FLAREBOT_APP_URL,
+    secret: env.BETTER_AUTH_SECRET,
+    database: env.AUTH_DB,
+    telemetry: { enabled: false },
+    rateLimit: { enabled: true, storage: "database" },
+    session: { expiresIn: sessionLifetimeSeconds },
+    advanced: { ipAddress: { ipAddressHeaders: ["cf-connecting-ip"] } },
+    databaseHooks: {
+      user: {
+        create: {
+          before: async (user) => {
+            if (!isAllowed(env, user.email)) return false;
+            return { data: user };
+          },
+        },
+      },
+    },
+    plugins: [
+      magicLink({
+        expiresIn: linkLifetimeSeconds,
+        storeToken: "hashed",
+        sendMagicLink: async ({ email, url }) => {
+          if (!isAllowed(env, email)) return;
+          await env.EMAIL.send({
+            to: email,
+            from: { email: env.FLAREBOT_MAIL_FROM, name: "flarebot" },
+            subject: "Sign in to flarebot",
+            ...(await renderSignInEmail({ url, logoUrl: `${env.FLAREBOT_APP_URL}/flare-logo.png`, expiresInMinutes: linkLifetimeSeconds / 60 })),
+          });
+        },
+      }),
+    ],
+  });
+}
+
+export const requireSession = createMiddleware<AppEnv>(async (c, next) => {
   if (c.env.FLAREBOT_LOCAL_DEV === "1") {
     await next();
     return;
   }
-  const teamDomain: string = c.env.ACCESS_TEAM_DOMAIN;
-  const audience: string = c.env.ACCESS_AUD;
-  if (teamDomain === "" || audience === "") {
-    throw new HTTPException(503, { message: "Cloudflare Access is not configured" });
-  }
-  const token = c.req.header("cf-access-jwt-assertion") ?? "";
-  try {
-    await jwtVerify(token, teamKeys(teamDomain), { issuer: `https://${teamDomain}`, audience });
-  } catch {
-    throw new HTTPException(401, { message: "Invalid Cloudflare Access token" });
+  const session = await createAuth(c.env).api.getSession({ headers: c.req.raw.headers });
+  if (session === null || !isAllowed(c.env, session.user.email)) {
+    throw new HTTPException(401, { message: "Sign in required" });
   }
   await next();
 });
