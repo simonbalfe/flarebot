@@ -371,7 +371,7 @@ flarebot installs as a web app (PWA) on Android and iPhone.
 | Piece | Where |
 | --- | --- |
 | Manifest, icons | `public/manifest.webmanifest`, `public/icon-192.png`, `public/icon-512.png` (also the maskable icon), `public/apple-touch-icon.png`, `public/icon.svg` |
-| Service worker | `public/sw.js`: caches the app shell so it opens offline, never caches `/api` |
+| Service worker | `public/sw.js`: caches the app shell so it opens offline. It handles only top-level page loads of the app, never `/api/` or `/mac/` and never iframes, so the live browser view (`/api/computer/vnc/vnc.html`) can't replace the cached app |
 | Head tags | `index.html`: theme colours, Apple web-app tags, `interactive-widget=resizes-content` so Android resizes the layout for the keyboard |
 | Visible-viewport height | `src/web/mobile.ts` sets `--fb-viewport-height` from `visualViewport`, so the composer stays above the iPhone keyboard |
 
@@ -382,6 +382,7 @@ Below 768px wide the layout follows iOS Messages:
 3. Details and Computer open as full-screen sheets with **Done**.
 4. Each step adds a browser history entry, so the Android back gesture and the browser back button go sheet → chat → list.
 5. Long-press a row for Edit and Delete; inputs use 16px text so focusing them doesn't zoom; the composer doesn't grab focus on phones.
+6. Take over opens full screen. While you're in control, noVNC's own control handle stays on the left edge, so its on-screen keyboard is reachable. The app isn't locked to portrait, so turning the phone sideways shows the desktop larger.
 
 Install on Android: open the site in Chrome, then menu → **Install app**. On iPhone: Safari → Share → **Add to Home Screen**.
 
