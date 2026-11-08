@@ -38,11 +38,13 @@
       { "name": "USER", "class_name": "User" },
       { "name": "BOT", "class_name": "Bot" },
       { "name": "COMPUTER", "class_name": "Computer" },
-      { "name": "GROUP", "class_name": "Group" }
+      { "name": "GROUP", "class_name": "Group" },
+      { "name": "MAC", "class_name": "Mac" }
     ]
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["User", "Bot", "Computer"] },
-    { "tag": "v2", "new_sqlite_classes": ["Group"] }
+    { "tag": "v2", "new_sqlite_classes": ["Group"] },
+    { "tag": "v3", "new_sqlite_classes": ["Mac"] }
   ]
 }

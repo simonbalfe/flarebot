@@ -1,7 +1,7 @@
-import { Button, createKumoToastManager, Dialog, Input, Select, Sidebar, Toasty, useSidebar } from "@cloudflare/kumo";
-import { CheckIcon, MagnifyingGlassIcon, MonitorIcon, PlusIcon, SignOutIcon, UsersThreeIcon, XIcon } from "@phosphor-icons/react";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { api, type BotSummary, type BotView, type ComputerStatus, type GroupSummary, isSignedIn, type McpServerSummary, type ThreadSummary } from "./api";
+import { Button, createKumoToastManager, Dialog, DropdownMenu, Input, Select, Sidebar, Toasty, useSidebar } from "@cloudflare/kumo";
+import { CheckIcon, CopyIcon, LockSimpleIcon, MagnifyingGlassIcon, MonitorIcon, PlusIcon, SignOutIcon, UploadSimpleIcon, UsersThreeIcon, XIcon } from "@phosphor-icons/react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { api, type BotSummary, type BotView, type CliSummary, type ComputerStatus, type GroupSummary, isSignedIn, type MacStatus, type McpServerSummary, type OwnSkill, type PoolKind, type SkillSummary, type ThreadSummary } from "./api";
 import { authClient } from "./auth";
 import { Avatar, botMentions } from "./Avatar";
 import { Composer } from "./Composer";
@@ -14,6 +14,7 @@ import { Transcript } from "./Transcript";
 
 const busyPollMs = 800;
 const idlePollMs = 3000;
+const macPollMs = 5000;
 const repeatErrorMs = 10_000;
 const sidebarWidth = 280;
 const minGroupBots = 2;
@@ -22,6 +23,36 @@ const toasts = createKumoToastManager();
 const iconButton = "grid size-7 cursor-pointer place-items-center rounded-full text-fb-preview hover:bg-fb-active hover:text-fb-text";
 
 type Panel = "computer" | "details";
+
+type RowAction = { label: string; danger?: boolean; onSelect: () => void };
+
+function RowMenu({ actions, children }: { actions: RowAction[]; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <DropdownMenu
+      open={open}
+      onOpenChange={(next: boolean) => {
+        if (!next) setOpen(false);
+      }}
+    >
+      <DropdownMenu.Trigger
+        render={<div />}
+        nativeButton={false}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          setOpen(true);
+        }}
+      >
+        {children}
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Content align="start" className="bg-fb-pane">
+        {actions.map((action) => (
+          <DropdownMenu.Item key={action.label} variant={action.danger === true ? "danger" : undefined} onClick={action.onSelect}>{action.label}</DropdownMenu.Item>
+        ))}
+      </DropdownMenu.Content>
+    </DropdownMenu>
+  );
+}
 
 function BotRow({ bot, index, active, onOpen }: { bot: BotSummary; index: number; active: boolean; onOpen: () => void }) {
   return (
@@ -56,7 +87,7 @@ function GroupRow({ group, bots, active, onOpen }: { group: GroupSummary; bots: 
   );
 }
 
-function BotList({ bots, groups, currentId, currentGroupId, onOpen, onOpenGroup, onNew, onNewGroup }: { bots: BotSummary[]; groups: GroupSummary[]; currentId: string | null; currentGroupId: string | null; onOpen: (id: string) => void; onOpenGroup: (id: string) => void; onNew: () => void; onNewGroup: () => void }) {
+function BotList({ bots, groups, currentId, currentGroupId, onOpen, onOpenGroup, onNew, onNewGroup, onEditBot, onDeleteBot, onRenameGroup, onDeleteGroup }: { bots: BotSummary[]; groups: GroupSummary[]; currentId: string | null; currentGroupId: string | null; onOpen: (id: string) => void; onOpenGroup: (id: string) => void; onNew: () => void; onNewGroup: () => void; onEditBot: (bot: BotSummary) => void; onDeleteBot: (bot: BotSummary) => void; onRenameGroup: (group: GroupSummary) => void; onDeleteGroup: (group: GroupSummary) => void }) {
   const [search, setSearch] = useState("");
   const { isMobile, setOpenMobile } = useSidebar();
   const term = search.toLowerCase();
@@ -78,28 +109,30 @@ function BotList({ bots, groups, currentId, currentGroupId, onOpen, onOpenGroup,
         </label>
         <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-2.5">
           {visible.map((bot) => (
-            <BotRow
-              key={bot.id}
-              bot={bot}
-              index={bots.indexOf(bot)}
-              active={currentGroupId === null && bot.id === currentId}
-              onOpen={() => {
-                onOpen(bot.id);
-                if (isMobile) setOpenMobile(false);
-              }}
-            />
+            <RowMenu key={bot.id} actions={[{ label: "Edit", onSelect: () => onEditBot(bot) }, { label: "Delete", danger: true, onSelect: () => onDeleteBot(bot) }]}>
+              <BotRow
+                bot={bot}
+                index={bots.indexOf(bot)}
+                active={currentGroupId === null && bot.id === currentId}
+                onOpen={() => {
+                  onOpen(bot.id);
+                  if (isMobile) setOpenMobile(false);
+                }}
+              />
+            </RowMenu>
           ))}
           {visibleGroups.map((group) => (
-            <GroupRow
-              key={group.id}
-              group={group}
-              bots={bots}
-              active={group.id === currentGroupId}
-              onOpen={() => {
-                onOpenGroup(group.id);
-                if (isMobile) setOpenMobile(false);
-              }}
-            />
+            <RowMenu key={group.id} actions={[{ label: "Rename", onSelect: () => onRenameGroup(group) }, { label: "Delete", danger: true, onSelect: () => onDeleteGroup(group) }]}>
+              <GroupRow
+                group={group}
+                bots={bots}
+                active={group.id === currentGroupId}
+                onOpen={() => {
+                  onOpenGroup(group.id);
+                  if (isMobile) setOpenMobile(false);
+                }}
+              />
+            </RowMenu>
           ))}
         </div>
         <div className="flex h-[50px] shrink-0 items-center gap-2 px-3.5 pt-2 pb-3.5">
@@ -159,7 +192,146 @@ function McpSection({ servers, enabled, onToggle, onAdd, onRemove }: { servers: 
   );
 }
 
-function DetailsPanel({ view, index, models, mcpServers, onModel, onRole, onForget, onToggleMcp, onAddMcp, onRemoveMcp }: { view: BotView; index: number; models: string[]; mcpServers: McpServerSummary[]; onModel: (model: string) => void; onRole: (role: string) => void; onForget: (index: number) => void; onToggleMcp: (id: string) => void; onAddMcp: (input: { name: string; url: string; token: string }) => Promise<boolean>; onRemoveMcp: (id: string) => void }) {
+function cliNameFrom(fileName: string): string {
+  return fileName.toLowerCase().replace(/\.(exe|bin)$/, "").replace(/[^a-z0-9._-]+/g, "-").replace(/^[^a-z0-9]+/, "").slice(0, 40);
+}
+
+const fileInput = "text-xs file:mr-2 file:cursor-pointer file:rounded-full file:border-0 file:bg-fb-active file:px-2.5 file:py-1";
+const submitButton = "w-fit rounded-full! bg-fb-me! text-fb-me-text!";
+
+function MacSection({ status, enabled, onToggle, onPair, onUnpair }: { status: MacStatus | null; enabled: boolean; onToggle: () => void; onPair: () => void; onUnpair: () => void }) {
+  const pairCommand = status?.pairingCode == null ? null : `bun scripts/flarebot-local.ts pair --url ${window.location.origin} --code ${status.pairingCode}`;
+  return (
+    <div className="flex flex-col">
+      <div className="mb-1 flex items-center justify-between">
+        <span className="flex items-center gap-1.5 text-fb-preview">
+          Mac
+          {status?.paired === true ? <span aria-label={status.connected ? "Online" : "Offline"} className={`size-1.5 rounded-full ${status.connected ? "bg-green-500" : "bg-fb-faint"}`} /> : null}
+          {status?.name != null ? <span className="truncate">{status.name}</span> : null}
+        </span>
+        {status?.paired === true ? (
+          <button type="button" aria-label="Unpair Mac" className={iconButton} onClick={onUnpair}><XIcon size={12} /></button>
+        ) : (
+          <button type="button" aria-label="Pair Mac" className={iconButton} onClick={onPair}><PlusIcon size={12} /></button>
+        )}
+      </div>
+      {status?.paired === true ? (
+        <>
+          <button type="button" aria-pressed={enabled} onClick={onToggle} className="flex cursor-pointer items-center gap-2 border-t border-fb-line py-1.5 text-left">
+            <span className={`grid size-4 shrink-0 place-items-center rounded border ${enabled ? "border-fb-me bg-fb-me text-fb-me-text" : "border-fb-line"}`}>{enabled ? <CheckIcon size={10} /> : null}</span>
+            <span>Access</span>
+          </button>
+          {status.roots.map((root) => (
+            <span key={root} className="border-t border-fb-line py-1.5 font-mono text-xs [overflow-wrap:anywhere]">{root}</span>
+          ))}
+        </>
+      ) : null}
+      {pairCommand !== null && status?.paired !== true ? (
+        <div className="flex items-start gap-2 border-t border-fb-line pt-2">
+          <code className="min-w-0 flex-1 font-mono text-xs [overflow-wrap:anywhere]">{pairCommand}</code>
+          <button type="button" aria-label="Copy" className={iconButton} onClick={() => void navigator.clipboard.writeText(pairCommand)}><CopyIcon size={12} /></button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function OwnSkillRows({ skills, onPublish }: { skills: OwnSkill[]; onPublish: (name: string) => void }) {
+  return skills.map((skill) => (
+    <div key={skill.name} className="flex items-center justify-between gap-2 border-t border-fb-line py-1.5" title={skill.description}>
+      <span className="flex min-w-0 flex-1 items-center gap-2 text-fb-preview">
+        <LockSimpleIcon size={14} className="shrink-0" />
+        <span className="min-w-0 truncate font-mono text-xs">{skill.name}</span>
+      </span>
+      <button type="button" aria-label={`Publish ${skill.name}`} className={iconButton} onClick={() => onPublish(skill.name)}><UploadSimpleIcon size={12} /></button>
+    </div>
+  ));
+}
+
+function PoolSection({ title, items, enabled, onToggle, onRemove, form, children }: { title: string; items: CliSummary[]; enabled: string[]; onToggle: (name: string) => void; onRemove: (name: string) => void; form: (close: () => void) => ReactNode; children?: ReactNode }) {
+  const [adding, setAdding] = useState(false);
+  return (
+    <div className="flex flex-col">
+      <div className="mb-1 flex items-center justify-between">
+        <span className="text-fb-preview">{title}</span>
+        <button type="button" aria-label={`Add to ${title}`} className={iconButton} onClick={() => setAdding(!adding)}><PlusIcon size={12} /></button>
+      </div>
+      {items.map((item) => (
+        <div key={item.name} className="flex items-center justify-between gap-2 border-t border-fb-line py-1.5">
+          <button type="button" aria-pressed={enabled.includes(item.name)} title={item.description} onClick={() => onToggle(item.name)} className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left">
+            <span className={`grid size-4 shrink-0 place-items-center rounded border ${enabled.includes(item.name) ? "border-fb-me bg-fb-me text-fb-me-text" : "border-fb-line"}`}>
+              {enabled.includes(item.name) ? <CheckIcon size={10} /> : null}
+            </span>
+            <span className="min-w-0 truncate font-mono text-xs">{item.name}</span>
+          </button>
+          <button type="button" aria-label={`Remove ${item.name}`} className={iconButton} onClick={() => onRemove(item.name)}><XIcon size={12} /></button>
+        </div>
+      ))}
+      {children}
+      {adding ? <div className="border-t border-fb-line pt-2">{form(() => setAdding(false))}</div> : null}
+    </div>
+  );
+}
+
+function CliForm({ onAdd, onDone }: { onAdd: (input: { name: string; description: string; file: File }) => Promise<boolean>; onDone: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [form, setForm] = useState<{ name: string; description: string; file: File | null }>({ name: "", description: "", file: null });
+  const submit = async () => {
+    if (form.file === null) return;
+    setBusy(true);
+    const added = await onAdd({ name: form.name.trim(), description: form.description.trim(), file: form.file });
+    setBusy(false);
+    if (added) onDone();
+  };
+  return (
+    <form
+      className="flex flex-col gap-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void submit();
+      }}
+    >
+      <input
+        aria-label="File"
+        type="file"
+        className={fileInput}
+        onChange={(event) => {
+          const file = event.target.files?.[0] ?? null;
+          setForm({ ...form, file, name: form.name === "" && file !== null ? cliNameFrom(file.name) : form.name });
+        }}
+      />
+      <Input aria-label="Name" placeholder="Name" size="sm" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
+      <Input aria-label="Description" placeholder="Description" size="sm" value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} />
+      <Button type="submit" size="sm" className={submitButton} disabled={busy || form.file === null || form.name.trim() === ""}>{busy ? "Uploading…" : "Add"}</Button>
+    </form>
+  );
+}
+
+function SkillForm({ onAdd, onDone }: { onAdd: (file: File) => Promise<boolean>; onDone: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [file, setFile] = useState<File | null>(null);
+  const submit = async () => {
+    if (file === null) return;
+    setBusy(true);
+    const added = await onAdd(file);
+    setBusy(false);
+    if (added) onDone();
+  };
+  return (
+    <form
+      className="flex flex-col gap-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void submit();
+      }}
+    >
+      <input aria-label="SKILL.md or .tar.gz" type="file" accept=".md,.gz,.tgz" className={fileInput} onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
+      <Button type="submit" size="sm" className={submitButton} disabled={busy || file === null}>{busy ? "Uploading…" : "Add"}</Button>
+    </form>
+  );
+}
+
+function DetailsPanel({ view, index, models, mcpServers, onModel, onRole, onForget, onToggleMcp, onAddMcp, onRemoveMcp, children }: { view: BotView; index: number; models: string[]; mcpServers: McpServerSummary[]; onModel: (model: string) => void; onRole: (role: string) => void; onForget: (index: number) => void; onToggleMcp: (id: string) => void; onAddMcp: (input: { name: string; url: string; token: string }) => Promise<boolean>; onRemoveMcp: (id: string) => void; children: ReactNode }) {
   const options = models.map((model) => ({ value: model, label: model.split("/")[1] ?? model }));
   const [role, setRole] = useState(view.profile.role);
   const saveRole = () => {
@@ -189,6 +361,7 @@ function DetailsPanel({ view, index, models, mcpServers, onModel, onRole, onForg
         <span className="font-mono text-xs [overflow-wrap:anywhere]">{view.workspace.repo}</span>
       </div>
       <McpSection servers={mcpServers} enabled={view.mcpServers.map((server) => server.id)} onToggle={onToggleMcp} onAdd={onAddMcp} onRemove={onRemoveMcp} />
+      {children}
       <div className="flex flex-col">
         <span className="mb-1 text-fb-preview">Memory</span>
         {view.memory.map((item, index) => (
@@ -206,41 +379,55 @@ function viewKeyOf(botId: string, threadId: string | null): string {
   return `${botId}:${threadId ?? "main"}`;
 }
 
-function ThreadBar({ threads, current, onOpen, onNew, onClose }: { threads: ThreadSummary[]; current: string | null; onOpen: (id: string | null) => void; onNew: () => void; onClose: (id: string) => void }) {
+function ThreadBar({ threads, projects, current, onOpen, onNew, onClose }: { threads: ThreadSummary[]; projects: string[]; current: string | null; onOpen: (id: string | null) => void; onNew: (project: string | null) => void; onClose: (id: string) => void }) {
   const tab = "fb-callout flex h-7 max-w-[220px] shrink-0 cursor-pointer items-center gap-1 rounded-full px-3";
   return (
     <div className="flex h-11 shrink-0 items-center gap-1 overflow-x-auto border-b-[0.5px] border-fb-line px-3 [scrollbar-width:none]">
       <button type="button" className={`${tab} ${current === null ? "bg-fb-active font-medium text-fb-text" : "text-fb-preview hover:bg-fb-active"}`} onClick={() => onOpen(null)}>Main</button>
       {threads.map((thread) => (
         <span key={thread.id} className={`${tab} pr-1 ${current === thread.id ? "bg-fb-active font-medium text-fb-text" : "text-fb-preview hover:bg-fb-active"}`}>
+          {thread.project === null ? null : <span className="fb-caption shrink-0 rounded-full bg-fb-field px-1.5 text-fb-preview">{thread.project}</span>}
           <button type="button" className="min-w-0 cursor-pointer truncate" onClick={() => onOpen(thread.id)}>{thread.title === "" ? "New thread" : thread.title}</button>
           <button type="button" aria-label="Close thread" className="grid size-5 shrink-0 cursor-pointer place-items-center rounded-full hover:bg-fb-line" onClick={() => onClose(thread.id)}><XIcon size={10} /></button>
         </span>
       ))}
-      <button type="button" aria-label="Start thread" className={iconButton} onClick={onNew}><PlusIcon size={14} /></button>
+      {projects.length === 0 ? (
+        <button type="button" aria-label="Start thread" className={iconButton} onClick={() => onNew(null)}><PlusIcon size={14} /></button>
+      ) : (
+        <DropdownMenu>
+          <DropdownMenu.Trigger aria-label="Start thread" className={iconButton}><PlusIcon size={14} /></DropdownMenu.Trigger>
+          <DropdownMenu.Content align="start" className="bg-fb-pane">
+            <DropdownMenu.Item onClick={() => onNew(null)}>Own folder</DropdownMenu.Item>
+            <DropdownMenu.Separator />
+            {projects.map((project) => (
+              <DropdownMenu.Item key={project} onClick={() => onNew(project)}>{project}</DropdownMenu.Item>
+            ))}
+          </DropdownMenu.Content>
+        </DropdownMenu>
+      )}
     </div>
   );
 }
 
-function NewBot({ onCreate, onClose }: { onCreate: (input: { name: string; role: string }) => void; onClose: () => void }) {
-  const [name, setName] = useState("");
-  const [role, setRole] = useState("");
+function BotDialog({ title, submitLabel, initial, withRole, onSubmit, onClose }: { title: string; submitLabel: string; initial: { name: string; role: string }; withRole: boolean; onSubmit: (input: { name: string; role: string }) => void; onClose: () => void }) {
+  const [name, setName] = useState(initial.name);
+  const [role, setRole] = useState(initial.role);
   return (
     <Dialog.Root open onOpenChange={(open: boolean) => { if (!open) onClose(); }}>
       <Dialog size="sm" className="flex flex-col gap-4 rounded-[28px]! border-0! bg-fb-pane! p-6! [corner-shape:squircle]">
-        <Dialog.Title className="fb-body font-semibold">New Bot</Dialog.Title>
+        <Dialog.Title className="fb-body font-semibold">{title}</Dialog.Title>
         <form
           className="flex flex-col gap-4"
           onSubmit={(event) => {
             event.preventDefault();
-            if (name.trim() !== "") onCreate({ name: name.trim(), role: role.trim() });
+            if (name.trim() !== "") onSubmit({ name: name.trim(), role: role.trim() });
           }}
         >
           <Input aria-label="Name" placeholder="Name" value={name} autoFocus onChange={(event) => setName(event.target.value)} />
-          <Input aria-label="Role" placeholder="Role" value={role} onChange={(event) => setRole(event.target.value)} />
+          {withRole ? <Input aria-label="Role" placeholder="Role" value={role} onChange={(event) => setRole(event.target.value)} /> : null}
           <div className="flex justify-end gap-2">
             <Button type="button" size="sm" variant="secondary" className="rounded-full!" onClick={onClose}>Cancel</Button>
-            <Button type="submit" size="sm" className="rounded-full! bg-fb-me! text-fb-me-text!" disabled={name.trim() === ""}>Create</Button>
+            <Button type="submit" size="sm" className="rounded-full! bg-fb-me! text-fb-me-text!" disabled={name.trim() === ""}>{submitLabel}</Button>
           </div>
         </form>
       </Dialog>
@@ -300,10 +487,17 @@ function Workspace() {
   const [viewKey, setViewKey] = useState("");
   const [threadId, setThreadId] = useState<string | null>(null);
   const [mcpServers, setMcpServers] = useState<McpServerSummary[]>([]);
+  const [clis, setClis] = useState<CliSummary[]>([]);
+  const [skills, setSkills] = useState<SkillSummary[]>([]);
+  const [ownSkills, setOwnSkills] = useState<OwnSkill[]>([]);
+  const [macStatus, setMacStatus] = useState<MacStatus | null>(null);
+  const [projects, setProjects] = useState<string[]>([]);
   const [pending, setPending] = useState<string | null>(null);
   const [panel, setPanel] = useState<Panel | null>(null);
   const [computer, setComputer] = useState<ComputerStatus | null>(null);
   const [overlay, setOverlay] = useState<"take" | "new" | "group" | null>(null);
+  const [editingBot, setEditingBot] = useState<BotSummary | null>(null);
+  const [renamingGroup, setRenamingGroup] = useState<GroupSummary | null>(null);
 
   const lastError = useRef({ message: "", at: 0 });
   const showError = useCallback((error: unknown) => {
@@ -329,7 +523,8 @@ function Workspace() {
     setBots(result.bots);
     setGroups(result.groups);
     setModels(result.models);
-    setCurrentId((current) => current ?? result.bots[0]?.id ?? null);
+    setProjects(result.projects);
+    setCurrentId((current) => (current !== null && result.bots.some((bot) => bot.id === current) ? current : (result.bots[0]?.id ?? null)));
   }, [guard]);
 
   const loadView = useCallback(async (id: string, thread: string | null) => {
@@ -370,9 +565,60 @@ function Workspace() {
     if (result !== undefined) setMcpServers(result.servers);
   }, [guard]);
 
+  const loadPool = useCallback(async () => {
+    const [cliResult, skillResult] = await Promise.all([guard(api.clis), guard(api.skills)]);
+    if (cliResult !== undefined) setClis(cliResult.clis);
+    if (skillResult !== undefined) setSkills(skillResult.skills);
+  }, [guard]);
+
+  const loadMac = useCallback(async () => {
+    const result = await guard(api.mac);
+    if (result !== undefined) setMacStatus(result);
+  }, [guard]);
+
   useEffect(() => {
-    if (panel === "details") void loadMcp();
-  }, [panel, loadMcp]);
+    if (panel !== "details") return;
+    void loadMac();
+    const timer = setInterval(() => void loadMac(), macPollMs);
+    return () => clearInterval(timer);
+  }, [panel, loadMac]);
+
+  const loadOwnSkills = useCallback(async (id: string) => {
+    const result = await guard(() => api.ownSkills(id));
+    if (result !== undefined) setOwnSkills(result.skills);
+  }, [guard]);
+
+  useEffect(() => {
+    if (panel !== "details") return;
+    void loadMcp();
+    void loadPool();
+  }, [panel, loadMcp, loadPool]);
+
+  useEffect(() => {
+    setOwnSkills([]);
+    if (panel === "details" && currentId !== null) void loadOwnSkills(currentId);
+  }, [panel, currentId, loadOwnSkills]);
+
+  const togglePoolItem = async (current: BotView | null, kind: PoolKind, name: string) => {
+    if (currentId === null || current === null) return;
+    const enabled = current[kind].map((item) => item.name);
+    const next = enabled.includes(name) ? enabled.filter((candidate) => candidate !== name) : [...enabled, name];
+    await guard(() => api.setBotPool(currentId, kind, next));
+    await loadView(currentId, threadId);
+  };
+
+  const addToPool = async (work: () => Promise<{ name: string }>): Promise<boolean> => {
+    const added = await guard(work);
+    if (added === undefined) return false;
+    toasts.add({ title: `${added.name} added` });
+    await loadPool();
+    return true;
+  };
+
+  const removeFromPool = (kind: PoolKind, name: string) => {
+    if (!window.confirm(`Remove ${name} for every Bot?`)) return;
+    void guard(() => api.removePoolItem(kind, name)).then(() => Promise.all([loadPool(), currentId !== null ? loadView(currentId, threadId) : undefined]));
+  };
 
   const toggleMcp = async (current: BotView | null, serverId: string) => {
     if (currentId === null || current === null) return;
@@ -398,9 +644,9 @@ function Workspace() {
     setThreadId(null);
     setCurrentId(id);
   };
-  const newThread = async () => {
+  const newThread = async (project: string | null) => {
     if (currentId === null) return;
-    const thread = await guard(() => api.startThread(currentId));
+    const thread = await guard(() => api.startThread(currentId, project));
     if (thread !== undefined) setThreadId(thread.id);
   };
   const closeThread = async (id: string) => {
@@ -408,6 +654,22 @@ function Workspace() {
     await guard(() => api.closeThread(currentId, id));
     if (threadId === id) setThreadId(null);
     await loadView(currentId, threadId === id ? null : threadId);
+  };
+  const deleteBot = async (bot: BotSummary) => {
+    if (!window.confirm(`Delete ${bot.name}?`)) return;
+    await guard(() => api.deleteBot(bot.id));
+    if (currentId === bot.id) {
+      setCurrentId(null);
+      setThreadId(null);
+      setPanel(null);
+    }
+    await loadBots();
+  };
+  const deleteGroup = async (group: GroupSummary) => {
+    if (!window.confirm(`Delete ${group.name}?`)) return;
+    await guard(() => api.deleteGroup(group.id));
+    if (currentGroupId === group.id) setCurrentGroupId(null);
+    await loadBots();
   };
   const openGroup = (id: string) => {
     setCurrentGroupId(id);
@@ -430,7 +692,20 @@ function Workspace() {
 
   return (
     <Sidebar.Provider defaultOpen collapsible="offcanvas" resizable defaultWidth={sidebarWidth} minWidth={224} maxWidth={420} className="h-svh min-h-0!">
-      <BotList bots={bots} groups={groups} currentId={currentId} currentGroupId={currentGroupId} onOpen={openBot} onOpenGroup={openGroup} onNew={() => setOverlay("new")} onNewGroup={() => setOverlay("group")} />
+      <BotList
+        bots={bots}
+        groups={groups}
+        currentId={currentId}
+        currentGroupId={currentGroupId}
+        onOpen={openBot}
+        onOpenGroup={openGroup}
+        onNew={() => setOverlay("new")}
+        onNewGroup={() => setOverlay("group")}
+        onEditBot={setEditingBot}
+        onDeleteBot={(bot) => void deleteBot(bot)}
+        onRenameGroup={setRenamingGroup}
+        onDeleteGroup={(group) => void deleteGroup(group)}
+      />
       <div className="relative flex min-w-0 flex-1 overflow-hidden bg-fb-pane">
         <div className="flex min-w-0 flex-1 flex-col">
           <header className="flex h-12 shrink-0 items-center gap-2 border-b-[0.5px] border-fb-line px-3">
@@ -452,7 +727,7 @@ function Workspace() {
           {currentGroup === undefined ? (
             <>
               {summary === undefined ? null : (
-                <ThreadBar threads={shown?.threads ?? view?.threads ?? []} current={threadId} onOpen={setThreadId} onNew={() => void newThread()} onClose={(id) => void closeThread(id)} />
+                <ThreadBar threads={shown?.threads ?? view?.threads ?? []} projects={projects} current={threadId} onOpen={setThreadId} onNew={(project) => void newThread(project)} onClose={(id) => void closeThread(id)} />
               )}
               {shown === null ? <div className="flex-1" /> : <Transcript view={shown} bots={bots} pending={pending} onTakeOver={openComputer} />}
               {summary === undefined ? null : (
@@ -498,7 +773,38 @@ function Workspace() {
                   onToggleMcp={(serverId) => void toggleMcp(shown, serverId)}
                   onAddMcp={addMcp}
                   onRemoveMcp={(serverId) => void guard(() => api.removeMcpServer(serverId)).then(() => Promise.all([loadMcp(), currentId !== null ? loadView(currentId, threadId) : undefined]))}
-                />
+                >
+                  <PoolSection
+                    title="CLIs"
+                    items={clis}
+                    enabled={shown.clis.map((cli) => cli.name)}
+                    onToggle={(name) => void togglePoolItem(shown, "clis", name)}
+                    onRemove={(name) => removeFromPool("clis", name)}
+                    form={(close) => <CliForm onDone={close} onAdd={(input) => addToPool(() => api.addCli(input.name, input.description, input.file))} />}
+                  />
+                  <PoolSection
+                    title="Skills"
+                    items={skills}
+                    enabled={shown.skills.map((skill) => skill.name)}
+                    onToggle={(name) => void togglePoolItem(shown, "skills", name)}
+                    onRemove={(name) => removeFromPool("skills", name)}
+                    form={(close) => <SkillForm onDone={close} onAdd={(file) => addToPool(() => api.addSkill(file))} />}
+                  >
+                    <OwnSkillRows
+                      skills={ownSkills.filter((skill) => !skills.some((shared) => shared.name === skill.name))}
+                      onPublish={(name) => currentId !== null && void addToPool(() => api.publishOwnSkill(currentId, name)).then(async (done) => {
+                        if (done) await Promise.all([loadView(currentId, threadId), loadOwnSkills(currentId)]);
+                      })}
+                    />
+                  </PoolSection>
+                  <MacSection
+                    status={macStatus}
+                    enabled={shown.macAccess}
+                    onToggle={() => currentId !== null && void guard(() => api.setBotMac(currentId, !shown.macAccess)).then(() => loadView(currentId, threadId))}
+                    onPair={() => void guard(api.createMacPairingCode).then(() => loadMac())}
+                    onUnpair={() => window.confirm("Unpair this Mac?") && void guard(api.unpairMac).then(() => loadMac())}
+                  />
+                </DetailsPanel>
               ) : null}
             </div>
           </aside>
@@ -515,9 +821,13 @@ function Workspace() {
         />
       ) : null}
       {overlay === "new" ? (
-        <NewBot
+        <BotDialog
+          title="New Bot"
+          submitLabel="Create"
+          initial={{ name: "", role: "" }}
+          withRole
           onClose={() => setOverlay(null)}
-          onCreate={(input) => {
+          onSubmit={(input) => {
             setOverlay(null);
             void guard(() => api.createBot(input)).then((bot) => {
               if (bot === undefined) return;
@@ -527,6 +837,34 @@ function Workspace() {
           }}
         />
       ) : null}
+      {editingBot === null ? null : (
+        <BotDialog
+          title="Edit Bot"
+          submitLabel="Save"
+          initial={{ name: editingBot.name, role: editingBot.role }}
+          withRole
+          onClose={() => setEditingBot(null)}
+          onSubmit={(input) => {
+            const id = editingBot.id;
+            setEditingBot(null);
+            void guard(() => api.updateBot(id, input)).then(() => Promise.all([loadBots(), currentId === id ? loadView(id, threadId) : undefined]));
+          }}
+        />
+      )}
+      {renamingGroup === null ? null : (
+        <BotDialog
+          title="Rename group"
+          submitLabel="Save"
+          initial={{ name: renamingGroup.name, role: "" }}
+          withRole={false}
+          onClose={() => setRenamingGroup(null)}
+          onSubmit={(input) => {
+            const id = renamingGroup.id;
+            setRenamingGroup(null);
+            void guard(() => api.renameGroup(id, input.name)).then(() => loadBots());
+          }}
+        />
+      )}
       {overlay === "group" ? (
         <NewGroup
           bots={bots}

@@ -18,7 +18,7 @@ export interface TranscriptView {
 }
 
 const detailLimit = 200;
-const botMessagePattern = /^\[Message from Bot: ([^\]]+)\]\n([\s\S]*)$/;
+const botMessagePattern = /^\[(?:Message|Reply) from Bot: ([^\]]+)\]\n([\s\S]*)$/;
 
 export function groupMessage(group: string, from: string, text: string, context: string): string {
   return `[Message in group: ${group} from: ${from}]\n${text}\n[Recent group messages]\n${context}`;
@@ -26,6 +26,10 @@ export function groupMessage(group: string, from: string, text: string, context:
 
 export function botMessage(from: string, text: string): string {
   return `[Message from Bot: ${from}]\n${text}`;
+}
+
+export function botReply(from: string, text: string): string {
+  return `[Reply from Bot: ${from}]\n${text}`;
 }
 
 function handoffOf(args: Record<string, unknown>): { to: string; text: string } {

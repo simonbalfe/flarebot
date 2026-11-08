@@ -28,7 +28,7 @@
 | Approvals | Pending rows in Durable Object storage |
 | Vault and Secure Form | Encrypted store, filled by a tool outside the model |
 | Connectors and MCP OAuth | MCP servers with bearer tokens are built. OAuth sign-in through `@earendil-works/pi-mcp/oauth`, with tokens in `User` |
-| Control of your Mac | `flarebot-local` daemon on an outbound WebSocket, asking every time by default |
+| Mac follow-ups | Approvals in the flarebot UI as well as the Mac dialog, screenshots, a menu bar app, a `bun build --compile` binary, launchd autostart |
 | Durable files | One Cloudflare Artifacts repo per Bot, cloned on boot and pushed after `save_skill` and before sleep |
 | Model routing | AI Gateway, for cost logs and limits |
 | Push | Web Push from a PWA |

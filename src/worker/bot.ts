@@ -5,11 +5,13 @@ import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
 import { type Conversation, type ConversationId, createRegistry, Harness, type SubmissionId, type SubmissionRecord, type Wake } from "@earendil-works/pi-durable";
 import { openDurableObjectSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/cloudflare";
 import { DurableObject } from "cloudflare:workers";
-import { userName } from "./env";
+import { computerName, userName } from "./env";
+import { type CliSummary, type OwnSkill, ownSkillsDir, type PoolKind, type SkillSummary, scanSkills } from "./pool";
+import type { PoolResult } from "./user";
 import type { McpServerSummary } from "./mcp";
 import { cloneState, commitAll, defaultRepoName, errorMessage, pushClone, type RepoResult } from "./repos";
 import { botExtension, type BotProfile, maxBotHops, type Takeover } from "./tools";
-import { botMessage, toTranscriptView, type TranscriptView } from "./view";
+import { botReply, toTranscriptView, type TranscriptView } from "./view";
 
 const context = BACKGROUND_CONTEXT;
 const heartbeatMs = 60_000;
@@ -64,9 +66,11 @@ export interface ThreadSummary {
   id: string;
   title: string;
   createdAt: number;
+  project: string | null;
 }
 
-type StoredThread = ThreadSummary & {
+type StoredThread = Omit<ThreadSummary, "project"> & {
+  project?: string | null;
   conversationId: ConversationId;
   lastSubmission: SubmissionId | null;
   closed: boolean;
@@ -75,10 +79,12 @@ type StoredThread = ThreadSummary & {
 export interface Workspace {
   path: string;
   repo: string;
+  branch: string | null;
+  project: string | null;
 }
 
 function summaryOf(thread: StoredThread): ThreadSummary {
-  return { id: thread.id, title: thread.title, createdAt: thread.createdAt };
+  return { id: thread.id, title: thread.title, createdAt: thread.createdAt, project: thread.project ?? null };
 }
 
 export interface BotView extends TranscriptView {
@@ -88,6 +94,9 @@ export interface BotView extends TranscriptView {
   mailbox: MailboxCounts;
   workspace: Workspace;
   mcpServers: McpServerSummary[];
+  clis: CliSummary[];
+  skills: SkillSummary[];
+  macAccess: boolean;
   threads: ThreadSummary[];
 }
 
@@ -123,8 +132,14 @@ export class Bot extends DurableObject<Env> {
           memory: () => this.#memory(),
           setMemory: (items) => ctx.storage.kv.put("memory", items),
           setTakeover: (takeover) => ctx.storage.kv.put("takeover", takeover),
-          workspace: () => this.#workspace(),
+          workspace: (conversationId) => this.#workspaceFor(conversationId),
+          ownRepo: () => this.#repoName(),
           mcpServers: () => this.#mcpServers(),
+          ticked: (kind) => this.#ticked(kind),
+          ownSkills: () => this.#ownSkills(),
+          macAccess: () => this.#macAccess(),
+          setOwnSkills: (skills) => ctx.storage.kv.put("ownSkills", skills),
+          tick: (kind, item) => this.ctx.storage.kv.put(kind, [...this.#ticked(kind).filter((current) => current.name !== item.name), item]),
           mcpServer: async (name) => {
             const summary = this.#mcpServers().find((server) => server.name.toLowerCase() === name.toLowerCase());
             return summary === undefined ? null : this.env.USER.getByName(userName).mcpServer(summary.id);
@@ -194,9 +209,10 @@ export class Bot extends DurableObject<Env> {
     this.#queueDrain();
   }
 
-  async startThread(): Promise<ThreadSummary> {
+  async startThread(project: string | null): Promise<ThreadSummary> {
+    if (project !== null && !(await this.env.USER.getByName(userName).projects()).includes(project)) throw new Error(`No project named ${project}`);
     const conversation = await this.#harness.createConversation({ ownership: { kind: "ownerless" }, agent: { model: { provider, modelId: this.#profile().model } } }, context);
-    const thread: StoredThread = { id: crypto.randomUUID(), title: "", createdAt: Date.now(), conversationId: conversation.id, lastSubmission: null, closed: false };
+    const thread: StoredThread = { id: crypto.randomUUID(), title: "", createdAt: Date.now(), project, conversationId: conversation.id, lastSubmission: null, closed: false };
     this.ctx.storage.kv.put("threads", [...this.#storedThreads(), thread]);
     this.#threadConversations.set(thread.id, Promise.resolve(conversation));
     return summaryOf(thread);
@@ -232,6 +248,42 @@ export class Bot extends DurableObject<Env> {
 
   disableMcpServer(id: string): void {
     this.ctx.storage.kv.put("mcpServers", this.#mcpServers().filter((server) => server.id !== id));
+  }
+
+  async setPoolItems(kind: PoolKind, names: string[]): Promise<CliSummary[]> {
+    const available = await this.env.USER.getByName(userName).poolItems(kind);
+    const enabled = available.filter((item) => names.includes(item.name));
+    this.ctx.storage.kv.put(kind, enabled);
+    return enabled;
+  }
+
+  refreshPoolItem(kind: PoolKind, item: CliSummary): void {
+    this.ctx.storage.kv.put(kind, this.#ticked(kind).map((current) => (current.name === item.name ? item : current)));
+  }
+
+  setMacAccess(enabled: boolean): void {
+    this.ctx.storage.kv.put("macAccess", enabled);
+  }
+
+  async ownSkills(): Promise<OwnSkill[]> {
+    if (!(await this.env.COMPUTER.getByName(computerName).status()).running) return this.#ownSkills();
+    const skills = await scanSkills(this.env, ownSkillsDir(this.#profile().id));
+    this.ctx.storage.kv.put("ownSkills", skills);
+    return skills;
+  }
+
+  async publishOwnSkill(name: string): Promise<PoolResult> {
+    if (!this.#ownSkills().some((skill) => skill.name === name)) return { ok: false, error: `No skill named ${name} in this Bot's folder` };
+    const user = this.env.USER.getByName(userName);
+    const result = await user.publishSkill(this.#profile().id, `${ownSkillsDir(this.#profile().id)}/${name}`);
+    if (!result.ok) return result;
+    const published = (await user.poolItems("skills")).find((skill) => skill.name === result.name);
+    if (published !== undefined) this.ctx.storage.kv.put("skills", [...this.#ticked("skills").filter((skill) => skill.name !== published.name), published]);
+    return result;
+  }
+
+  disablePoolItem(kind: PoolKind, name: string): void {
+    this.ctx.storage.kv.put(kind, this.#ticked(kind).filter((item) => item.name !== name));
   }
 
   async closeThread(threadId: string): Promise<void> {
@@ -286,6 +338,20 @@ export class Bot extends DurableObject<Env> {
     this.ctx.storage.kv.put("profile", { ...this.#profile(), role });
   }
 
+  setName(name: string): void {
+    this.#repoName();
+    this.ctx.storage.kv.put("profile", { ...this.#profile(), name });
+  }
+
+  async destroy(): Promise<void> {
+    await this.#root.abort(context).catch(() => undefined);
+    for (const thread of this.#storedThreads().filter((candidate) => !candidate.closed)) {
+      await (await this.#threadConversation(thread)).abort(context).catch(() => undefined);
+    }
+    await this.ctx.storage.deleteAlarm();
+    await this.ctx.storage.deleteAll();
+  }
+
   async setModel(model: string): Promise<void> {
     this.ctx.storage.kv.put("profile", { ...this.#profile(), model });
     const change = { model: { provider, modelId: model } };
@@ -323,6 +389,9 @@ export class Bot extends DurableObject<Env> {
         mailbox: this.#mailboxCounts(),
         workspace: this.#workspace(),
         mcpServers: this.#mcpServers(),
+        clis: this.#ticked("clis"),
+        skills: this.#ticked("skills"),
+        macAccess: this.#macAccess(),
         threads: this.#storedThreads()
           .filter((thread) => !thread.closed)
           .map(summaryOf),
@@ -332,17 +401,51 @@ export class Bot extends DurableObject<Env> {
     }
   }
 
+  #macAccess(): boolean {
+    return this.ctx.storage.kv.get<boolean>("macAccess") ?? false;
+  }
+
+  #ownSkills(): OwnSkill[] {
+    return this.ctx.storage.kv.get<OwnSkill[]>("ownSkills") ?? [];
+  }
+
+  #ticked(kind: PoolKind): CliSummary[] {
+    return this.ctx.storage.kv.get<CliSummary[]>(kind) ?? [];
+  }
+
   #mcpServers(): McpServerSummary[] {
     return this.ctx.storage.kv.get<McpServerSummary[]>("mcpServers") ?? [];
   }
 
   #workspace(): Workspace {
     const profile = this.#profile();
-    return { path: `/workspace/bots/${profile.id}`, repo: defaultRepoName(profile) };
+    return { path: `/workspace/bots/${profile.id}`, repo: this.#repoName(), branch: null, project: null };
   }
 
-  async #autoSave(): Promise<RepoResult> {
-    const workspace = this.#workspace();
+  #projectWorkspace(project: string): Workspace {
+    const profile = this.#profile();
+    return { path: `/workspace/bots/${profile.id}/projects/${project}`, repo: project, branch: `flarebot/${this.#repoName()}`, project };
+  }
+
+  #repoName(): string {
+    const stored = this.ctx.storage.kv.get<string>("repo");
+    if (stored !== undefined) return stored;
+    const name = defaultRepoName(this.#profile());
+    this.ctx.storage.kv.put("repo", name);
+    return name;
+  }
+
+  #workspaceFor(conversationId: ConversationId): Workspace {
+    const project = this.#storedThreads().find((thread) => thread.conversationId === conversationId && !thread.closed)?.project ?? null;
+    return project === null ? this.#workspace() : this.#projectWorkspace(project);
+  }
+
+  #activeWorkspaces(): Workspace[] {
+    const projects = new Set(this.#storedThreads().flatMap((thread) => (!thread.closed && thread.project != null ? [thread.project] : [])));
+    return [this.#workspace(), ...[...projects].map((project) => this.#projectWorkspace(project))];
+  }
+
+  async #autoSave(workspace: Workspace): Promise<RepoResult> {
     try {
       const state = await cloneState(this.env, workspace.path);
       if (!state.exists) return { ok: true, message: "Nothing cloned." };
@@ -360,8 +463,10 @@ export class Bot extends DurableObject<Env> {
   #queueAutoSave(): void {
     this.#saving = this.#saving
       .then(async () => {
-        const saved = await this.#autoSave();
-        if (!saved.ok) console.error(JSON.stringify({ event: "auto_save_failed", repo: this.#workspace().repo, error: saved.error }));
+        for (const workspace of this.#activeWorkspaces()) {
+          const saved = await this.#autoSave(workspace);
+          if (!saved.ok) console.error(JSON.stringify({ event: "auto_save_failed", repo: workspace.repo, branch: workspace.branch, error: saved.error }));
+        }
       })
       .catch((error: unknown) => console.error(String(error)));
     this.ctx.waitUntil(this.#saving);
@@ -455,7 +560,7 @@ export class Bot extends DurableObject<Env> {
       await this.env.BOT.getByName(row.sender_id).enqueue({
         id: `${row.id}:undelivered`,
         senderId: profile.id,
-        text: botMessage(profile.name, `Your message could not be delivered: ${error}`),
+        text: botReply(profile.name, `Your message could not be delivered: ${error}`),
         hops: maxBotHops,
         replyTo: null,
         groupId: null,
@@ -574,7 +679,7 @@ export class Bot extends DurableObject<Env> {
     const undelivered: string[] = [];
     for (const id of new Set(recipients)) {
       try {
-        await this.env.BOT.getByName(id).enqueue({ id: crypto.randomUUID(), senderId: profile.id, text: botMessage(profile.name, text), hops, replyTo: null, groupId: null });
+        await this.env.BOT.getByName(id).enqueue({ id: crypto.randomUUID(), senderId: profile.id, text: botReply(profile.name, text), hops, replyTo: null, groupId: null });
       } catch (error) {
         console.error(String(error));
         undelivered.push(id);

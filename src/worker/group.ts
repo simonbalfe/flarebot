@@ -42,6 +42,14 @@ export class Group extends DurableObject<Env> {
     this.ctx.storage.kv.put("profile", profile);
   }
 
+  setName(name: string): void {
+    this.ctx.storage.kv.put("profile", { ...this.#profile(), name });
+  }
+
+  async destroy(): Promise<void> {
+    await this.ctx.storage.deleteAll();
+  }
+
   async view(): Promise<GroupView> {
     const rows = this.ctx.storage.sql.exec<MessageRow>("SELECT id, sender, text, at FROM messages ORDER BY rowid DESC LIMIT ?", viewMessages).toArray();
     const profile = this.#profile();

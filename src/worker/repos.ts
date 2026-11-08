@@ -20,7 +20,7 @@ export type RepoResult = { ok: true; message: string } | { ok: false; error: str
 
 const cloneScript = `
 set -e
-path="$1"; remote="$2"; name="$3"; email="$4"
+path="$1"; remote="$2"; name="$3"; email="$4"; branch="$5"
 tmp="$(mktemp -d)"
 git clone -q --no-checkout "$remote" "$tmp/repo"
 mkdir -p "$path"
@@ -30,6 +30,19 @@ cd "$path"
 git config user.name "$name"
 git config user.email "$email"
 printf 'bin/\\n' >> .git/info/exclude
+if [ -z "$branch" ]; then printf '/projects/\\n' >> .git/info/exclude; fi
+if [ -n "$branch" ]; then
+  if git rev-parse -q --verify "refs/remotes/origin/$branch" >/dev/null; then
+    git branch -f "$branch" "origin/$branch"
+    git symbolic-ref HEAD "refs/heads/$branch"
+    git branch -q -u "origin/$branch" "$branch"
+  elif git rev-parse -q --verify HEAD >/dev/null; then
+    git branch -f "$branch" HEAD
+    git symbolic-ref HEAD "refs/heads/$branch"
+  else
+    git symbolic-ref HEAD "refs/heads/$branch"
+  fi
+fi
 if git rev-parse -q --verify HEAD >/dev/null; then
   git reset -q
   git ls-files -d -z | xargs -0 -r git checkout --
@@ -133,12 +146,18 @@ async function createRepo(env: Env, name: string, description: string): Promise<
   }
 }
 
-export async function ensureClone(env: Env, bot: RepoBot, name: string, path: string): Promise<RepoResult> {
+export async function ensureClone(env: Env, bot: RepoBot, name: string, path: string, branch: string | null, description = `${bot.name}'s flarebot folder`): Promise<RepoResult> {
   const check = await computer(env).exec(["test", "-d", `${path}/.git`], gitTimeoutSeconds);
   if (check.exitCode === 0) return { ok: true, message: path };
-  const repo = await ensureRepo(env, name, `${bot.name}'s flarebot folder`);
-  if (!repo.ok) return repo;
-  return runGit(env, name, "read", cloneScript, (remote) => [path, remote, `${bot.name} (flarebot)`, `${bot.id}@flarebot.local`]);
+  if (branch === null) {
+    const repo = await ensureRepo(env, name, description);
+    if (!repo.ok) return repo;
+  }
+  return runGit(env, name, "read", cloneScript, (remote) => [path, remote, `${bot.name} (flarebot)`, `${bot.id}@flarebot.local`, branch ?? ""]);
+}
+
+export async function projectExists(env: Env, name: string): Promise<boolean> {
+  return repoNamePattern.test(name) && (await repoExists(env, name));
 }
 
 export function pullClone(env: Env, name: string, path: string): Promise<RepoResult> {
@@ -150,7 +169,7 @@ export function pushClone(env: Env, name: string, path: string): Promise<RepoRes
 }
 
 export async function commitAll(env: Env, path: string, message: string): Promise<RepoResult> {
-  const result = await computer(env).exec(["bash", "-c", 'git -C "$1" add -A && git -C "$1" commit -q -m "$2"', "commit", path, message], gitTimeoutSeconds);
+  const result = await computer(env).exec(["bash", "-c", 'git -C "$1" add -A && { git -C "$1" diff --cached --quiet || git -C "$1" commit -q -m "$2"; }', "commit", path, message], gitTimeoutSeconds);
   if (result.exitCode !== 0) return { ok: false, error: gitOutput(result) || `git exited with ${result.exitCode}` };
   return { ok: true, message: "Committed." };
 }

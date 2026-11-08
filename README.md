@@ -15,8 +15,10 @@ Inspired by the UX of [Grok Bot](https://docs.x.ai/grok-bot/overview).
 | Named Bots with a role, chat, steering and stop | Built |
 | Memory managed through chat, and a model picker | Built |
 | One shared computer and Chrome, with a window and folder per Bot | Built, tab control tested locally |
-| Threads per Bot: start, switch, stop and close, each with its own folder | Built, start and close tested locally |
+| Threads per Bot: start, switch, stop and close | Built, start and close tested locally |
 | Each Bot's folder is a clone of its own Cloudflare Artifacts repo, shared by all its threads and auto-saved when the Bot goes idle | Built, clone and auto-save tested locally |
+| Projects: shared Artifacts repos any Bot can start a thread in, on its own branch | Built, clone tested locally |
+| Edit and delete Bots, rename and delete groups, from a right-click menu | Built, tested locally |
 | Bots messaging each other through a durable queue, with retries and automatic replies | Built, not yet run with a model |
 | Group chats of 2 to 6 Bots, with `@` mentions and `@everyone` | Built, not yet run with a model |
 | Commands, plus screenshots, clicks, typing, keys and scrolling in the Bot's tab | Built |
@@ -28,7 +30,10 @@ Inspired by the UX of [Grok Bot](https://docs.x.ai/grok-bot/overview).
 | Skills and CLIs that each Bot creates and downloads for itself | Built, not yet run by a Bot |
 | Routines, dry run | Planned |
 | Remote MCP servers, added once and switched on per Bot | Built, connect and tool call tested locally |
-| Connected apps, MCP OAuth sign-in, Vault, control of your Mac | Planned |
+| One shared pool of CLIs and Agent Skills in Artifacts, ticked per Bot | Built, add, tick and remove tested locally |
+| Bots write their own CLIs in any language and skills, and publish them to the pool | Built, a Bot has published a Go CLI; skill publishing not yet run by a Bot |
+| Your own Mac as native Bot tools, through the `flarebot-local` daemon, with allowed folders and an approval dialog per action | Built, pairing and every action tested locally through a test daemon; not yet run by a Bot |
+| Connected apps, MCP OAuth sign-in, Vault | Planned |
 | Push notifications, voice | Planned |
 
 ## Quick start
@@ -51,6 +56,9 @@ Open http://127.0.0.1:8787. The first run builds the computer image, which takes
 | `bun run build` | Build for production |
 | `scripts/deploy.sh` | Deploy, including migrations and secrets |
 | `bun scripts/import-chrome-cookies.ts` | Copy local Chrome logins to the computer |
+| `bun scripts/add-cli.ts --file <path> [--name <name>] [--description <text>]` | Add a Linux `amd64` CLI to the shared pool, then tick it per Bot in Details |
+| `bun scripts/flarebot-local.ts pair --url <app url> --code <code>` | Pair this Mac with the code from Details → Mac, then `allow <folder>` and `run` |
+| `bun scripts/add-skill.ts --path <skill folder or SKILL.md>` | Add an Agent Skill to the shared pool, then tick it per Bot in Details |
 | `bun scripts/install-on-computer.ts --file <path> --to /workspace/bots/<id>/<path>` | Copy a CLI or skill to a Bot's folder. Add `--executable` for a CLI |
 
 Read [Cookie import](docs/architecture.md#cookie-import) before importing. Every Bot can use imported logins.
@@ -60,7 +68,8 @@ Read [Cookie import](docs/architecture.md#cookie-import) before importing. Every
 ![You chat with each Bot. Bots message each other. Each Bot's threads work in one folder that auto-saves to its own Artifacts repo.](docs/how-it-works.svg)
 
 - **Bot:** a Durable Object with its own role, memory, threads and inbox. It runs the agent loop on OpenRouter models.
-- **Threads:** each thread is a new conversation. All of a Bot's threads work in the same folder.
+- **Threads:** each thread is a new conversation, in the Bot's own folder or in a project.
+- **Projects:** shared Artifacts repos. A Bot works in a project on its own branch, `flarebot/<Bot repo>`.
 - **Messages:** any Bot can message any other Bot through that Bot's inbox, and the answer comes back the same way.
 - **Folder:** `/workspace/bots/<Bot ID>` on the shared computer, a git clone of the Bot's own Cloudflare Artifacts repo, auto-saved when the Bot goes idle.
 - **Computer:** one Linux container shared by all Bots, with one Chrome and a window per Bot, that sleeps when idle.
