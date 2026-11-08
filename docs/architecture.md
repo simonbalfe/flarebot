@@ -374,6 +374,7 @@ flarebot installs as a web app (PWA) on Android and iPhone.
 | Service worker | `public/sw.js`: caches the app shell so it opens offline. It handles only top-level page loads of the app, never `/api/` or `/mac/` and never iframes, so the live browser view (`/api/computer/vnc/vnc.html`) can't replace the cached app |
 | Head tags | `index.html`: theme colours, Apple web-app tags, `interactive-widget=resizes-content` so Android resizes the layout for the keyboard |
 | Visible-viewport height | `src/web/mobile.ts` sets `--fb-viewport-height` from `visualViewport`, so the composer stays above the iPhone keyboard |
+| Updates | `src/web/main.tsx` checks for a new service worker whenever the app comes back to the foreground, and reloads once when a new one takes control. Bump `shellCache` in `public/sw.js` when the shell changes |
 
 Below 768px wide the layout follows iOS Messages:
 
@@ -385,6 +386,11 @@ Below 768px wide the layout follows iOS Messages:
 6. Take over opens full screen. While you're in control, noVNC's own control handle stays on the left edge, so its on-screen keyboard is reachable. The app isn't locked to portrait, so turning the phone sideways shows the desktop larger.
 
 Install on Android: open the site in Chrome, then menu → **Install app**. On iPhone: Safari → Share → **Add to Home Screen**.
+
+**Limits:**
+- Chrome's **Desktop site** setting makes the page ignore the mobile viewport, so a phone shows the desktop layout until it's switched off.
+- In portrait the live view is a landscape desktop fitted to a narrow screen; turn the phone sideways to take over.
+- No push notifications yet.
 
 ## Deploying
 
