@@ -54,40 +54,17 @@ Open http://127.0.0.1:8787. The first run builds the computer image, which takes
 
 Read [Cookie import](docs/architecture.md#cookie-import) before importing. Every Bot can use imported logins.
 
-## How it fits together
+## How it works
 
-```mermaid
-flowchart LR
-  you(["You"])
-  mac["Local Chrome<br/>cookie import"]
+![You chat with each Bot. Bots message each other. Each Bot's threads work in one folder that auto-saves to its own Artifacts repo.](docs/how-it-works.svg)
 
-  subgraph cf["Cloudflare, emulated locally for now"]
-    worker["Worker<br/>API, auth, web app"]
-    user["User<br/>Bot list"]
-    bot["Bot<br/>role, Pi agent, transcript,<br/>memory, mailbox"]
-    others["Other Bots<br/>each with its own mailbox"]
-    computer["Computer<br/>one Chrome, a tab per Bot,<br/>a folder per Bot, terminal<br/>sleeps when idle"]
-  end
+- **Bot:** a Durable Object with its own role, memory, threads and inbox. It runs the agent loop on OpenRouter models.
+- **Threads:** each thread is a new conversation. All of a Bot's threads work in the same folder.
+- **Messages:** any Bot can message any other Bot through that Bot's inbox, and the answer comes back the same way.
+- **Folder:** `/workspace/bots/<Bot ID>` on the shared computer, a git clone of the Bot's own Cloudflare Artifacts repo, auto-saved when the Bot goes idle.
+- **Computer:** one Linux container shared by all Bots, with one Chrome and a window per Bot, that sleeps when idle.
 
-  models["OpenRouter<br/>models"]
-  sites["Websites"]
-
-  you -->|"chat"| worker
-  you -.->|"watch, take over"| worker
-  mac -->|"cookies"| worker
-  worker --> user
-  worker --> bot
-  worker -.->|"screen"| computer
-  bot <-->|"queued messages"| others
-  bot -->|"own tab and folder"| computer
-  others -->|"own tabs and folders"| computer
-  bot --> models
-  computer --> sites
-```
-
-- **Bot:** holds the role, conversation, memory and mailbox, and runs the agent loop.
-- **Computer:** a disposable Linux container shared by all Bots, with one Chrome window per Bot, that sleeps when idle.
-- **User:** holds the Bot list.
+[Architecture](docs/architecture.md) has the details.
 
 ## Docs
 
