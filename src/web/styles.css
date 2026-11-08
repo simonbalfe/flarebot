@@ -45,12 +45,60 @@
 
 body {
   @apply overflow-hidden bg-fb-pane text-fb-text antialiased;
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "Segoe UI", sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Roboto", "Helvetica Neue", "Segoe UI", sans-serif;
   text-rendering: optimizeLegibility;
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 #root {
   isolation: isolate;
+}
+
+@media (max-width: 767px) {
+  input,
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}
+
+@keyframes fb-sheet-in {
+  from {
+    transform: translateY(100%);
+  }
+}
+
+@keyframes fb-push-in {
+  from {
+    transform: translateX(24%);
+    opacity: 0.6;
+  }
+}
+
+@utility fb-screen {
+  height: var(--fb-viewport-height, 100dvh);
+}
+
+@utility fb-safe-top {
+  padding-top: env(safe-area-inset-top);
+}
+
+@utility fb-safe-bottom {
+  padding-bottom: max(env(safe-area-inset-bottom), 0.75rem);
+}
+
+@utility fb-sheet {
+  animation: fb-sheet-in 0.32s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+@utility fb-push {
+  animation: fb-push-in 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+@utility fb-no-callout {
+  -webkit-touch-callout: none;
+  user-select: none;
 }
 
 @utility fb-body {

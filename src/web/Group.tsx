@@ -3,6 +3,7 @@ import { api, type BotSummary, type GroupSummary, type GroupView } from "./api";
 import { Avatar, type MentionOption } from "./Avatar";
 import { Composer } from "./Composer";
 import { formatClock } from "./format";
+import { useIsMobile } from "./mobile";
 import { BotBubble, MyBubble, Thinking } from "./Transcript";
 
 const busyPollMs = 800;
@@ -24,6 +25,7 @@ export function GroupAvatars({ memberIds, bots }: { memberIds: string[]; bots: B
 }
 
 export function GroupPane({ group, bots, onError }: { group: GroupSummary; bots: BotSummary[]; onError: (error: unknown) => void }) {
+  const mobile = useIsMobile();
   const [view, setView] = useState<GroupView | null>(null);
   const [pending, setPending] = useState<string | null>(null);
   const bottom = useRef<HTMLDivElement>(null);
@@ -73,7 +75,7 @@ export function GroupPane({ group, bots, onError }: { group: GroupSummary; bots:
   return (
     <>
       <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-width:none]">
-        <div className="flex min-h-full w-full flex-col gap-1.5 px-5 py-4">
+        <div className="flex min-h-full w-full flex-col gap-1.5 px-3 py-4 md:px-5">
           {view?.messages.map((message) => {
             const showTime = message.at - previousAt > timeGapMs;
             previousAt = message.at;
@@ -100,7 +102,7 @@ export function GroupPane({ group, bots, onError }: { group: GroupSummary; bots:
           <div ref={bottom} />
         </div>
       </div>
-      <Composer key={group.id} name={group.name} busy={typing.length > 0} mentions={mentions} onSend={(text) => void send(text)} onStop={() => void stop()} />
+      <Composer key={group.id} name={group.name} busy={typing.length > 0} autoFocus={!mobile} mentions={mentions} onSend={(text) => void send(text)} onStop={() => void stop()} />
     </>
   );
 }

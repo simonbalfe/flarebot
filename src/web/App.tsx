@@ -1,11 +1,12 @@
-import { Button, createKumoToastManager, Dialog, DropdownMenu, Input, Select, Sidebar, Toasty, useSidebar } from "@cloudflare/kumo";
-import { CheckIcon, CopyIcon, LockSimpleIcon, MagnifyingGlassIcon, MonitorIcon, PlusIcon, SignOutIcon, UploadSimpleIcon, UsersThreeIcon, XIcon } from "@phosphor-icons/react";
+import { Button, createKumoToastManager, Dialog, DropdownMenu, Input, Select, Sidebar, Toasty } from "@cloudflare/kumo";
+import { CaretLeftIcon, CaretRightIcon, CheckIcon, CopyIcon, LockSimpleIcon, MagnifyingGlassIcon, MonitorIcon, PlusIcon, SignOutIcon, UploadSimpleIcon, UsersThreeIcon, XIcon } from "@phosphor-icons/react";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { api, type BotSummary, type BotView, type CliSummary, type ComputerStatus, type GroupSummary, isSignedIn, type MacStatus, type McpServerSummary, type OwnSkill, type PoolKind, type SkillSummary, type ThreadSummary } from "./api";
 import { authClient } from "./auth";
 import { Avatar, botMentions } from "./Avatar";
 import { Composer } from "./Composer";
 import { ConnectMac } from "./ConnectMac";
+import { useIsMobile } from "./mobile";
 import { ComputerPanel, TakeOver } from "./Computer";
 import { formatListTime } from "./format";
 import { GroupAvatars, GroupPane } from "./Group";
@@ -21,7 +22,8 @@ const sidebarWidth = 280;
 const minGroupBots = 2;
 const maxGroupBots = 6;
 const toasts = createKumoToastManager();
-const iconButton = "grid size-7 cursor-pointer place-items-center rounded-full text-fb-preview hover:bg-fb-active hover:text-fb-text";
+const iconButton = "grid size-9 cursor-pointer place-items-center rounded-full text-fb-preview hover:bg-fb-active hover:text-fb-text md:size-7";
+const longPressMs = 450;
 
 type Panel = "computer" | "details";
 
@@ -29,6 +31,12 @@ type RowAction = { label: string; danger?: boolean; onSelect: () => void };
 
 function RowMenu({ actions, children }: { actions: RowAction[]; children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
+  const pressTimer = useRef<number | null>(null);
+  const longPressed = useRef(false);
+  const cancelPress = () => {
+    if (pressTimer.current !== null) window.clearTimeout(pressTimer.current);
+    pressTimer.current = null;
+  };
   return (
     <DropdownMenu
       open={open}
@@ -37,11 +45,28 @@ function RowMenu({ actions, children }: { actions: RowAction[]; children: React.
       }}
     >
       <DropdownMenu.Trigger
-        render={<div />}
+        render={<div className="fb-no-callout" />}
         nativeButton={false}
         onContextMenu={(event) => {
           event.preventDefault();
           setOpen(true);
+        }}
+        onTouchStart={() => {
+          longPressed.current = false;
+          cancelPress();
+          pressTimer.current = window.setTimeout(() => {
+            longPressed.current = true;
+            navigator.vibrate?.(10);
+            setOpen(true);
+          }, longPressMs);
+        }}
+        onTouchMove={cancelPress}
+        onTouchEnd={cancelPress}
+        onClickCapture={(event) => {
+          if (!longPressed.current) return;
+          longPressed.current = false;
+          event.preventDefault();
+          event.stopPropagation();
         }}
       >
         {children}
@@ -55,10 +80,12 @@ function RowMenu({ actions, children }: { actions: RowAction[]; children: React.
   );
 }
 
+const rowClass = "fb-continuous flex h-[68px] w-full cursor-pointer items-center gap-3 rounded-[20px] px-2.5 text-left text-fb-side-text active:bg-fb-active md:h-14 md:gap-2.5";
+
 function BotRow({ bot, index, active, onOpen }: { bot: BotSummary; index: number; active: boolean; onOpen: () => void }) {
   return (
-    <button type="button" onClick={onOpen} className={`fb-continuous flex h-14 w-full cursor-pointer items-center gap-2.5 rounded-[20px] px-2.5 text-left text-fb-side-text ${active ? "bg-fb-active" : "hover:bg-fb-active"}`}>
-      <span className="relative shrink-0">
+    <button type="button" onClick={onOpen} className={`${rowClass} ${active ? "bg-fb-active" : "md:hover:bg-fb-active"}`}>
+      <span className="relative shrink-0 scale-125 md:scale-100">
         <Avatar index={index} />
         {bot.needsYou ? <i className="absolute -top-0.5 -right-0.5 size-[11px] rounded-full bg-fb-unread ring-2 ring-fb-sidebar" /> : null}
       </span>
@@ -75,8 +102,8 @@ function BotRow({ bot, index, active, onOpen }: { bot: BotSummary; index: number
 
 function GroupRow({ group, bots, active, onOpen }: { group: GroupSummary; bots: BotSummary[]; active: boolean; onOpen: () => void }) {
   return (
-    <button type="button" onClick={onOpen} className={`fb-continuous flex h-14 w-full cursor-pointer items-center gap-2.5 rounded-[20px] px-2.5 text-left text-fb-side-text ${active ? "bg-fb-active" : "hover:bg-fb-active"}`}>
-      <GroupAvatars memberIds={group.memberIds} bots={bots} />
+    <button type="button" onClick={onOpen} className={`${rowClass} ${active ? "bg-fb-active" : "md:hover:bg-fb-active"}`}>
+      <span className="shrink-0 scale-125 md:scale-100"><GroupAvatars memberIds={group.memberIds} bots={bots} /></span>
       <span className="min-w-0 flex-1">
         <span className="flex items-baseline justify-between gap-2">
           <span className="fb-body truncate font-medium">{group.name}</span>
@@ -88,60 +115,52 @@ function GroupRow({ group, bots, active, onOpen }: { group: GroupSummary; bots: 
   );
 }
 
-function BotList({ bots, groups, currentId, currentGroupId, onOpen, onOpenGroup, onNew, onNewGroup, onEditBot, onDeleteBot, onRenameGroup, onDeleteGroup }: { bots: BotSummary[]; groups: GroupSummary[]; currentId: string | null; currentGroupId: string | null; onOpen: (id: string) => void; onOpenGroup: (id: string) => void; onNew: () => void; onNewGroup: () => void; onEditBot: (bot: BotSummary) => void; onDeleteBot: (bot: BotSummary) => void; onRenameGroup: (group: GroupSummary) => void; onDeleteGroup: (group: GroupSummary) => void }) {
+type ChatListProps = { bots: BotSummary[]; groups: GroupSummary[]; currentId: string | null; currentGroupId: string | null; onOpen: (id: string) => void; onOpenGroup: (id: string) => void; onNew: () => void; onNewGroup: () => void; onEditBot: (bot: BotSummary) => void; onDeleteBot: (bot: BotSummary) => void; onRenameGroup: (group: GroupSummary) => void; onDeleteGroup: (group: GroupSummary) => void };
+
+function ChatList({ bots, groups, currentId, currentGroupId, onOpen, onOpenGroup, onNew, onNewGroup, onEditBot, onDeleteBot, onRenameGroup, onDeleteGroup, mobile }: ChatListProps & { mobile: boolean }) {
   const [search, setSearch] = useState("");
-  const { isMobile, setOpenMobile } = useSidebar();
   const term = search.toLowerCase();
   const visible = bots.filter((bot) => `${bot.name} ${bot.last}`.toLowerCase().includes(term));
   const visibleGroups = groups.filter((group) => `${group.name} ${group.last}`.toLowerCase().includes(term));
   return (
-    <Sidebar className="border-0! bg-fb-sidebar!">
-      <div className="flex h-full flex-col bg-fb-sidebar text-fb-side-text">
-        <div className="flex h-12 shrink-0 items-center justify-between pr-2.5 pl-4">
-          <span className="fb-body font-semibold">flarebot</span>
-          <span className="flex items-center gap-0.5">
-            <button type="button" aria-label="New group" className={iconButton} onClick={onNewGroup}><UsersThreeIcon size={14} /></button>
-            <button type="button" aria-label="New Bot" className={iconButton} onClick={onNew}><PlusIcon size={14} /></button>
-          </span>
-        </div>
-        <label className="fb-continuous mx-2.5 mb-2 flex h-8 shrink-0 items-center gap-1.5 rounded-[14px] bg-fb-field px-2.5 text-fb-faint">
-          <MagnifyingGlassIcon size={14} />
-          <input aria-label="Search chats" placeholder="Search" value={search} onChange={(event) => setSearch(event.target.value)} className="fb-callout min-w-0 flex-1 bg-transparent text-fb-side-text outline-none placeholder:text-fb-faint" />
-        </label>
-        <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-2.5">
-          {visible.map((bot) => (
-            <RowMenu key={bot.id} actions={[{ label: "Edit", onSelect: () => onEditBot(bot) }, { label: "Delete", danger: true, onSelect: () => onDeleteBot(bot) }]}>
-              <BotRow
-                bot={bot}
-                index={bots.indexOf(bot)}
-                active={currentGroupId === null && bot.id === currentId}
-                onOpen={() => {
-                  onOpen(bot.id);
-                  if (isMobile) setOpenMobile(false);
-                }}
-              />
-            </RowMenu>
-          ))}
-          {visibleGroups.map((group) => (
-            <RowMenu key={group.id} actions={[{ label: "Rename", onSelect: () => onRenameGroup(group) }, { label: "Delete", danger: true, onSelect: () => onDeleteGroup(group) }]}>
-              <GroupRow
-                group={group}
-                bots={bots}
-                active={group.id === currentGroupId}
-                onOpen={() => {
-                  onOpenGroup(group.id);
-                  if (isMobile) setOpenMobile(false);
-                }}
-              />
-            </RowMenu>
-          ))}
-        </div>
-        <div className="flex h-[50px] shrink-0 items-center gap-2 px-3.5 pt-2 pb-3.5">
-          <span className="grid size-7 shrink-0 place-items-center rounded-full bg-fb-active text-[10px] font-medium text-fb-preview">Y</span>
-          <span className="fb-callout min-w-0 flex-1 truncate">You</span>
-          <button type="button" aria-label="Sign out" className={iconButton} onClick={() => void authClient.signOut().then(() => window.location.reload())}><SignOutIcon size={14} /></button>
-        </div>
+    <div className={`flex h-full flex-col bg-fb-sidebar text-fb-side-text ${mobile ? "fb-safe-top" : ""}`}>
+      <div className="flex h-12 shrink-0 items-center justify-between pr-2.5 pl-4">
+        {mobile ? <span /> : <span className="fb-body font-semibold">flarebot</span>}
+        <span className="flex items-center gap-0.5">
+          <button type="button" aria-label="New group" className={iconButton} onClick={onNewGroup}><UsersThreeIcon size={mobile ? 20 : 14} /></button>
+          <button type="button" aria-label="New Bot" className={iconButton} onClick={onNew}><PlusIcon size={mobile ? 20 : 14} /></button>
+        </span>
       </div>
+      {mobile ? <h1 className="shrink-0 px-4 pb-2 text-[30px] leading-9 font-bold tracking-[-0.5px]">flarebot</h1> : null}
+      <label className={`fb-continuous mx-2.5 mb-2 flex shrink-0 items-center gap-1.5 bg-fb-field px-2.5 text-fb-faint ${mobile ? "mx-4 h-9 rounded-[12px]" : "h-8 rounded-[14px]"}`}>
+        <MagnifyingGlassIcon size={mobile ? 16 : 14} />
+        <input aria-label="Search chats" placeholder="Search" value={search} onChange={(event) => setSearch(event.target.value)} className="fb-callout min-w-0 flex-1 bg-transparent text-fb-side-text outline-none placeholder:text-fb-faint" />
+      </label>
+      <div className={`flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto overscroll-contain ${mobile ? "px-2" : "px-2.5"}`}>
+        {visible.map((bot) => (
+          <RowMenu key={bot.id} actions={[{ label: "Edit", onSelect: () => onEditBot(bot) }, { label: "Delete", danger: true, onSelect: () => onDeleteBot(bot) }]}>
+            <BotRow bot={bot} index={bots.indexOf(bot)} active={!mobile && currentGroupId === null && bot.id === currentId} onOpen={() => onOpen(bot.id)} />
+          </RowMenu>
+        ))}
+        {visibleGroups.map((group) => (
+          <RowMenu key={group.id} actions={[{ label: "Rename", onSelect: () => onRenameGroup(group) }, { label: "Delete", danger: true, onSelect: () => onDeleteGroup(group) }]}>
+            <GroupRow group={group} bots={bots} active={!mobile && group.id === currentGroupId} onOpen={() => onOpenGroup(group.id)} />
+          </RowMenu>
+        ))}
+      </div>
+      <div className={`flex shrink-0 items-center gap-2 px-3.5 pt-2 ${mobile ? "fb-safe-bottom" : "h-[50px] pb-3.5"}`}>
+        <span className="grid size-7 shrink-0 place-items-center rounded-full bg-fb-active text-[10px] font-medium text-fb-preview">Y</span>
+        <span className="fb-callout min-w-0 flex-1 truncate">You</span>
+        <button type="button" aria-label="Sign out" className={iconButton} onClick={() => void authClient.signOut().then(() => window.location.reload())}><SignOutIcon size={14} /></button>
+      </div>
+    </div>
+  );
+}
+
+function BotList(props: ChatListProps) {
+  return (
+    <Sidebar className="border-0! bg-fb-sidebar!">
+      <ChatList {...props} mobile={false} />
     </Sidebar>
   );
 }
@@ -510,6 +529,19 @@ function Workspace() {
   const [overlay, setOverlay] = useState<"take" | "new" | "group" | null>(null);
   const [editingBot, setEditingBot] = useState<BotSummary | null>(null);
   const [renamingGroup, setRenamingGroup] = useState<GroupSummary | null>(null);
+  const mobile = useIsMobile();
+  const [mobileChat, setMobileChat] = useState(false);
+  const panelRef = useRef<Panel | null>(null);
+  panelRef.current = panel;
+
+  useEffect(() => {
+    const onBack = () => {
+      if (panelRef.current !== null) setPanel(null);
+      else setMobileChat(false);
+    };
+    window.addEventListener("popstate", onBack);
+    return () => window.removeEventListener("popstate", onBack);
+  }, []);
 
   const lastError = useRef({ message: "", at: 0 });
   const showError = useCallback((error: unknown) => {
@@ -700,69 +732,128 @@ function Workspace() {
     setPending(null);
   };
 
-  const togglePanel = (next: Panel) => setPanel(panel === next ? null : next);
+  const togglePanel = (next: Panel) => {
+    if (panel === next) {
+      closePanel();
+      return;
+    }
+    if (mobile && panel === null) window.history.pushState({ flarebot: "panel" }, "");
+    setPanel(next);
+  };
+  const closePanel = () => {
+    if (mobile) window.history.back();
+    else setPanel(null);
+  };
+  const enterChat = () => {
+    if (!mobile || mobileChat) return;
+    window.history.pushState({ flarebot: "chat" }, "");
+    setMobileChat(true);
+  };
 
-  return (
-    <Sidebar.Provider defaultOpen collapsible="offcanvas" resizable defaultWidth={sidebarWidth} minWidth={224} maxWidth={420} className="h-svh min-h-0!">
-      <BotList
-        bots={bots}
-        groups={groups}
-        currentId={currentId}
-        currentGroupId={currentGroupId}
-        onOpen={openBot}
-        onOpenGroup={openGroup}
-        onNew={() => setOverlay("new")}
-        onNewGroup={() => setOverlay("group")}
-        onEditBot={setEditingBot}
-        onDeleteBot={(bot) => void deleteBot(bot)}
-        onRenameGroup={setRenamingGroup}
-        onDeleteGroup={(group) => void deleteGroup(group)}
-      />
-      <div className="relative flex min-w-0 flex-1 overflow-hidden bg-fb-pane">
-        <div className="flex min-w-0 flex-1 flex-col">
-          <header className="flex h-12 shrink-0 items-center gap-2 border-b-[0.5px] border-fb-line px-3">
-            <span className="md:hidden"><Sidebar.Trigger /></span>
-            {currentGroup === undefined ? null : (
-              <div className="flex min-w-0 items-center gap-2 py-1 pr-2.5 pl-1">
-                <GroupAvatars memberIds={currentGroup.memberIds} bots={bots} />
-                <span className="fb-body truncate font-semibold">{currentGroup.name}</span>
+  const listProps: ChatListProps = {
+    bots,
+    groups,
+    currentId,
+    currentGroupId,
+    onOpen: (id) => {
+      openBot(id);
+      enterChat();
+    },
+    onOpenGroup: (id) => {
+      openGroup(id);
+      enterChat();
+    },
+    onNew: () => setOverlay("new"),
+    onNewGroup: () => setOverlay("group"),
+    onEditBot: setEditingBot,
+    onDeleteBot: (bot) => void deleteBot(bot),
+    onRenameGroup: setRenamingGroup,
+    onDeleteGroup: (group) => void deleteGroup(group),
+  };
+
+  const mobileHeader = (
+    <header className="fb-safe-top shrink-0 border-b-[0.5px] border-fb-line bg-fb-pane/90 backdrop-blur-xl">
+      <div className="grid h-14 grid-cols-[1fr_auto_1fr] items-center px-1.5">
+        <button type="button" aria-label="Back" onClick={() => window.history.back()} className="flex size-11 cursor-pointer items-center justify-center justify-self-start rounded-full text-fb-text active:bg-fb-active">
+          <CaretLeftIcon size={24} weight="bold" />
+        </button>
+        {currentGroup !== undefined ? (
+          <div className="flex min-w-0 flex-col items-center gap-0.5">
+            <GroupAvatars memberIds={currentGroup.memberIds} bots={bots} />
+            <span className="fb-caption max-w-[50vw] truncate font-medium">{currentGroup.name}</span>
+          </div>
+        ) : summary === undefined ? (
+          <span />
+        ) : (
+          <button type="button" onClick={() => togglePanel("details")} className="flex min-w-0 cursor-pointer flex-col items-center gap-0.5 rounded-xl px-2 py-0.5 active:bg-fb-active">
+            <Avatar index={bots.indexOf(summary)} size={30} />
+            <span className="fb-caption flex max-w-[50vw] items-center gap-0.5 font-medium">
+              <span className="truncate">{summary.name}</span>
+              <CaretRightIcon size={9} weight="bold" className="shrink-0 text-fb-faint" />
+            </span>
+          </button>
+        )}
+        <button type="button" aria-label="Computer" className={`justify-self-end ${iconButton} ${panel === "computer" ? "bg-fb-active text-fb-text" : ""}`} onClick={() => togglePanel("computer")}><MonitorIcon size={20} /></button>
+      </div>
+    </header>
+  );
+
+  const desktopHeader = (
+    <header className="flex h-12 shrink-0 items-center gap-2 border-b-[0.5px] border-fb-line px-3">
+      {currentGroup === undefined ? null : (
+        <div className="flex min-w-0 items-center gap-2 py-1 pr-2.5 pl-1">
+          <GroupAvatars memberIds={currentGroup.memberIds} bots={bots} />
+          <span className="fb-body truncate font-semibold">{currentGroup.name}</span>
+        </div>
+      )}
+      {summary === undefined || currentGroup !== undefined ? null : (
+        <button type="button" onClick={() => togglePanel("details")} className="flex min-w-0 cursor-pointer items-center gap-2 rounded-full py-1 pr-2.5 pl-1 hover:bg-fb-active">
+          <Avatar index={bots.indexOf(summary)} size={24} />
+          <span className="fb-body truncate font-semibold">{summary.name}</span>
+        </button>
+      )}
+      <button type="button" aria-label="Computer" className={`ml-auto ${iconButton} ${panel === "computer" ? "bg-fb-active text-fb-text" : ""}`} onClick={() => togglePanel("computer")}><MonitorIcon size={16} /></button>
+    </header>
+  );
+
+  const chatBody =
+    currentGroup === undefined ? (
+      <>
+        {summary === undefined ? null : (
+          <ThreadBar threads={shown?.threads ?? view?.threads ?? []} projects={projects} current={threadId} onOpen={setThreadId} onNew={(project) => void newThread(project)} onClose={(id) => void closeThread(id)} />
+        )}
+        {shown === null ? <div className="flex-1" /> : <Transcript view={shown} bots={bots} pending={pending} onTakeOver={openComputer} />}
+        {summary === undefined ? null : (
+          <Composer
+            key={`${summary.id}:${threadId ?? "main"}`}
+            name={summary.name}
+            busy={busy}
+            autoFocus={!mobile}
+            mentions={botMentions(bots).filter((mention) => mention.name !== summary.name)}
+            onSend={(text) => void send(text)}
+            onStop={() => currentId !== null && void guard(() => (threadId === null ? api.stop(currentId) : api.stopThread(currentId, threadId)))}
+          />
+        )}
+      </>
+    ) : (
+      <GroupPane group={currentGroup} bots={bots} onError={showError} />
+    );
+
+  const panelView =
+    panel === null ? null : (
+          <aside className={mobile ? "fb-sheet fb-safe-top fixed inset-0 z-30 flex flex-col bg-fb-pane" : "flex w-[360px] shrink-0 flex-col border-l-[0.5px] border-fb-line bg-fb-pane"}>
+            {mobile ? (
+              <div className="grid h-14 shrink-0 grid-cols-[1fr_auto_1fr] items-center border-b-[0.5px] border-fb-line px-4">
+                <span />
+                <span className="fb-body font-semibold">{panel === "computer" ? "Computer" : "Details"}</span>
+                <button type="button" className="fb-body cursor-pointer justify-self-end font-semibold text-fb-action" onClick={closePanel}>Done</button>
+              </div>
+            ) : (
+              <div className="flex h-12 shrink-0 items-center justify-between border-b-[0.5px] border-fb-line pr-2.5 pl-4">
+                <span className="fb-body font-semibold">{panel === "computer" ? "Computer" : "Details"}</span>
+                <button type="button" aria-label="Close" className={iconButton} onClick={closePanel}><XIcon size={14} /></button>
               </div>
             )}
-            {summary === undefined || currentGroup !== undefined ? null : (
-              <button type="button" onClick={() => togglePanel("details")} className="flex min-w-0 cursor-pointer items-center gap-2 rounded-full py-1 pr-2.5 pl-1 hover:bg-fb-active">
-                <Avatar index={bots.indexOf(summary)} size={24} />
-                <span className="fb-body truncate font-semibold">{summary.name}</span>
-              </button>
-            )}
-            <button type="button" aria-label="Computer" className={`ml-auto ${iconButton} ${panel === "computer" ? "bg-fb-active text-fb-text" : ""}`} onClick={() => togglePanel("computer")}><MonitorIcon size={16} /></button>
-          </header>
-          {currentGroup === undefined ? (
-            <>
-              {summary === undefined ? null : (
-                <ThreadBar threads={shown?.threads ?? view?.threads ?? []} projects={projects} current={threadId} onOpen={setThreadId} onNew={(project) => void newThread(project)} onClose={(id) => void closeThread(id)} />
-              )}
-              {shown === null ? <div className="flex-1" /> : <Transcript view={shown} bots={bots} pending={pending} onTakeOver={openComputer} />}
-              {summary === undefined ? null : (
-                <Composer
-                  key={`${summary.id}:${threadId ?? "main"}`}
-                  name={summary.name}
-                  busy={busy}
-                  mentions={botMentions(bots).filter((mention) => mention.name !== summary.name)}
-                  onSend={(text) => void send(text)}
-                  onStop={() => currentId !== null && void guard(() => (threadId === null ? api.stop(currentId) : api.stopThread(currentId, threadId)))}
-                />
-              )}
-            </>
-          ) : (
-            <GroupPane group={currentGroup} bots={bots} onError={showError} />
-          )}
-        </div>
-        {panel === null ? null : (
-          <aside className="absolute inset-y-0 right-0 z-10 flex w-full flex-col border-l-[0.5px] border-fb-line bg-fb-pane sm:static sm:w-[360px]">
-            <div className="flex h-12 shrink-0 items-center justify-between border-b-[0.5px] border-fb-line pr-2.5 pl-4">
-              <span className="fb-body font-semibold">{panel === "computer" ? "Computer" : "Details"}</span>
-              <button type="button" aria-label="Close" className={iconButton} onClick={() => setPanel(null)}><XIcon size={14} /></button>
-            </div>
             <div className="min-h-0 flex-1 overflow-y-auto p-3">
               {panel === "computer" ? (
                 <ComputerPanel
@@ -820,8 +911,10 @@ function Workspace() {
               ) : null}
             </div>
           </aside>
-        )}
-      </div>
+        );
+
+  const overlays = (
+    <>
       {overlay === "take" && summary !== undefined ? (
         <TakeOver
           name={summary.name}
@@ -891,6 +984,37 @@ function Workspace() {
           }}
         />
       ) : null}
+    </>
+  );
+
+  if (mobile) {
+    return (
+      <div className="fb-screen relative overflow-hidden bg-fb-pane">
+        {mobileChat ? (
+          <div key="chat" className="fb-push flex h-full min-w-0 flex-col bg-fb-pane">
+            {mobileHeader}
+            {chatBody}
+          </div>
+        ) : (
+          <ChatList key="list" {...listProps} mobile />
+        )}
+        {panelView}
+        {overlays}
+      </div>
+    );
+  }
+
+  return (
+    <Sidebar.Provider defaultOpen collapsible="offcanvas" resizable defaultWidth={sidebarWidth} minWidth={224} maxWidth={420} className="h-svh min-h-0!">
+      <BotList {...listProps} />
+      <div className="relative flex min-w-0 flex-1 overflow-hidden bg-fb-pane">
+        <div className="flex min-w-0 flex-1 flex-col">
+          {desktopHeader}
+          {chatBody}
+        </div>
+        {panelView}
+      </div>
+      {overlays}
     </Sidebar.Provider>
   );
 }

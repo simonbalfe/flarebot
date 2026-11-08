@@ -1,15 +1,15 @@
 import { betterAuth } from "better-auth";
-import { magicLink } from "better-auth/plugins";
+import { emailOTP } from "better-auth/plugins";
 import { createMiddleware } from "hono/factory";
 import { HTTPException } from "hono/http-exception";
 import { renderSignInEmail } from "./emails";
 import type { AppEnv } from "./env";
 
-const linkLifetimeSeconds = 10 * 60;
+const codeLifetimeSeconds = 10 * 60;
 const sessionLifetimeSeconds = 30 * 24 * 60 * 60;
 
 function isAllowed(env: Env, email: string): boolean {
-  const allowed = env.FLAREBOT_ALLOWED_EMAILS.split(",").map((address) => address.trim().toLowerCase());
+  const allowed = (env.FLAREBOT_ALLOWED_EMAILS ?? "").split(",").map((address) => address.trim().toLowerCase());
   return allowed.includes(email.trim().toLowerCase());
 }
 
@@ -33,16 +33,16 @@ export function createAuth(env: Env) {
       },
     },
     plugins: [
-      magicLink({
-        expiresIn: linkLifetimeSeconds,
-        storeToken: "hashed",
-        sendMagicLink: async ({ email, url }) => {
-          if (!isAllowed(env, email)) return;
+      emailOTP({
+        expiresIn: codeLifetimeSeconds,
+        storeOTP: "hashed",
+        sendVerificationOTP: async ({ email, otp, type }) => {
+          if (type !== "sign-in" || !isAllowed(env, email)) return;
           await env.EMAIL.send({
             to: email,
             from: { email: env.FLAREBOT_MAIL_FROM, name: "flarebot" },
-            subject: "Sign in to flarebot",
-            ...(await renderSignInEmail({ url, logoUrl: `${env.FLAREBOT_APP_URL}/flare-logo.png`, expiresInMinutes: linkLifetimeSeconds / 60 })),
+            subject: `${otp} is your flarebot code`,
+            ...(await renderSignInEmail({ code: otp, logoUrl: `${env.FLAREBOT_APP_URL}/flare-logo.png`, expiresInMinutes: codeLifetimeSeconds / 60 })),
           });
         },
       }),

@@ -137,7 +137,7 @@ export function Transcript({ view, bots, pending, onTakeOver }: { view: BotView;
   const empty = rows.length === 0 && pending === null && !view.busy;
   return (
     <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-width:none]">
-      <div className="flex min-h-full w-full flex-col gap-1.5 px-5 py-4">
+      <div className="flex min-h-full w-full flex-col gap-1.5 px-3 py-4 md:px-5">
         {empty ? <div className="grid flex-1 place-items-center"><Avatar index={botIndex} size={64} /></div> : null}
         {rows.map((row, index) => {
           const showTime = row.at - previousAt > timeGapMs;

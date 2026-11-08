@@ -355,14 +355,35 @@ The Details panel lists the servers with a checkbox for this Bot, adds one with 
 
 ## Sign-in
 
-`src/worker/auth.ts` protects every `/api/*` route except `/api/auth/*` with Better Auth magic links.
+`src/worker/auth.ts` protects every `/api/*` route except `/api/auth/*` with Better Auth email codes.
 
-1. `POST /api/auth/sign-in/magic-link` emails a link through the `EMAIL` binding. An address not in `FLAREBOT_ALLOWED_EMAILS` gets the same response, but no email.
-2. The link works once and expires after 10 minutes.
-3. Opening an expired or used link returns to the sign-in screen with an error.
-4. Opening a valid link creates a 30-day session, stored in the `AUTH_DB` D1 database.
+1. `POST /api/auth/email-otp/send-verification-otp` emails a 6-digit code through the `EMAIL` binding. An address not in `FLAREBOT_ALLOWED_EMAILS` gets the same response, but no email.
+2. The code is stored hashed, expires after 10 minutes and allows 3 tries.
+3. `POST /api/auth/sign-in/email-otp` with the code creates a 30-day session, stored in the `AUTH_DB` D1 database.
+4. A code instead of a link because an installed web app keeps its own cookies: a link opened from the mail app would sign in the browser, not the app.
 
 `FLAREBOT_LOCAL_DEV=1`, set by `scripts/dev.sh`, skips the check locally.
+
+## Mobile app
+
+flarebot installs as a web app (PWA) on Android and iPhone.
+
+| Piece | Where |
+| --- | --- |
+| Manifest, icons | `public/manifest.webmanifest`, `public/icon-192.png`, `public/icon-512.png` (also the maskable icon), `public/apple-touch-icon.png`, `public/icon.svg` |
+| Service worker | `public/sw.js`: caches the app shell so it opens offline, never caches `/api` |
+| Head tags | `index.html`: theme colours, Apple web-app tags, `interactive-widget=resizes-content` so Android resizes the layout for the keyboard |
+| Visible-viewport height | `src/web/mobile.ts` sets `--fb-viewport-height` from `visualViewport`, so the composer stays above the iPhone keyboard |
+
+Below 768px wide the layout follows iOS Messages:
+
+1. The chat list is the root screen, with a large title and search.
+2. Tapping a chat pushes it with a back chevron and the Bot's avatar and name centred. Tapping the name opens Details.
+3. Details and Computer open as full-screen sheets with **Done**.
+4. Each step adds a browser history entry, so the Android back gesture and the browser back button go sheet → chat → list.
+5. Long-press a row for Edit and Delete; inputs use 16px text so focusing them doesn't zoom; the composer doesn't grab focus on phones.
+
+Install on Android: open the site in Chrome, then menu → **Install app**. On iPhone: Safari → Share → **Add to Home Screen**.
 
 ## Deploying
 

@@ -32,7 +32,9 @@ Run both checks after every code change. Docker or OrbStack must be running for 
 | `scripts/flarebot-local.ts` | Mac daemon: folder picker, device link, allowed folders, approval dialog, runs the actions. Also served to Macs at `/mac/flarebot-local.ts` |
 | `src/worker/mcp.ts` | Remote MCP servers through `@earendil-works/pi-mcp`: list tools, call a tool |
 | `src/worker/computer.ts` | `Computer` Durable Object: container, commands, snapshots, a browser tab per Bot |
-| `src/worker/auth.ts` | Better Auth magic links and the API session check |
+| `src/worker/auth.ts` | Better Auth email codes and the API session check |
+| `src/web/mobile.ts` | Phone breakpoint hook and the visible-viewport height for the keyboard |
+| `public/` | PWA manifest, icons and service worker |
 | `migrations/` | D1 schema for Better Auth |
 | `src/web/` | React UI |
 | `src/web/styles.css` | Design tokens and Kumo theme overrides |

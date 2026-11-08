@@ -25,7 +25,8 @@ Inspired by the UX of [Grok Bot](https://docs.x.ai/grok-bot/overview).
 | Live preview, take over, hand back | Built |
 | Sleep when idle, restore from a snapshot | Built |
 | Import cookies from local Chrome | Built |
-| Magic link sign-in for allowed emails | Built |
+| Email code sign-in for allowed emails | Built |
+| Installable mobile app (PWA) with an iOS Messages style phone layout | Built, tested at phone size locally |
 | Approvals, permissions, Secure Form, action log | Planned |
 | Skills and CLIs that each Bot creates and downloads for itself | Built, not yet run by a Bot |
 | Routines, dry run | Planned |

@@ -2,11 +2,11 @@ import { ArrowUpIcon, StopIcon } from "@phosphor-icons/react";
 import { type FormEvent, type KeyboardEvent, useRef, useState } from "react";
 import { Avatar, type MentionOption } from "./Avatar";
 
-const roundButton = "grid size-7 shrink-0 cursor-pointer place-items-center rounded-full bg-fb-me text-fb-me-text disabled:cursor-default";
+const roundButton = "grid size-8 shrink-0 md:size-7 cursor-pointer place-items-center rounded-full bg-fb-me text-fb-me-text disabled:cursor-default";
 
 const mentionPattern = /(^|\s)@([^\s@]*)$/;
 
-export function Composer({ name, busy, mentions, onSend, onStop }: { name: string; busy: boolean; mentions: MentionOption[]; onSend: (text: string) => void; onStop: () => void }) {
+export function Composer({ name, busy, mentions, onSend, onStop, autoFocus = true }: { name: string; busy: boolean; mentions: MentionOption[]; onSend: (text: string) => void; onStop: () => void; autoFocus?: boolean }) {
   const [draft, setDraft] = useState("");
   const [cursor, setCursor] = useState(0);
   const [highlighted, setHighlighted] = useState(0);
@@ -50,7 +50,7 @@ export function Composer({ name, busy, mentions, onSend, onStop }: { name: strin
     submit();
   };
   return (
-    <form onSubmit={onSubmit} className="relative w-full px-5 pb-4 pt-1">
+    <form onSubmit={onSubmit} className="fb-safe-bottom relative w-full px-3 pt-1 md:px-5 md:pb-4">
       {matches.length === 0 ? null : (
         <div role="listbox" aria-label="Mentions" className="fb-continuous absolute bottom-full left-5 z-20 mb-1 flex max-h-60 min-w-48 flex-col overflow-y-auto rounded-[16px] border-[0.5px] border-fb-field-line bg-fb-pane p-1 shadow-lg">
           {matches.map((mention, index) => (
@@ -76,7 +76,7 @@ export function Composer({ name, busy, mentions, onSend, onStop }: { name: strin
           placeholder={`Message ${name}`}
           value={draft}
           rows={1}
-          autoFocus
+          autoFocus={autoFocus}
           onChange={(event) => {
             setDraft(event.target.value);
             setCursor(event.target.selectionStart);
