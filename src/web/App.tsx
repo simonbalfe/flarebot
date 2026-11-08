@@ -1,7 +1,7 @@
 import { Button, createKumoToastManager, Dialog, Input, Select, Sidebar, Toasty, useSidebar } from "@cloudflare/kumo";
 import { CheckIcon, MagnifyingGlassIcon, MonitorIcon, PlusIcon, SignOutIcon, UsersThreeIcon, XIcon } from "@phosphor-icons/react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, type BotSummary, type BotView, type ComputerStatus, type GroupSummary, isSignedIn, type ThreadSummary } from "./api";
+import { api, type BotSummary, type BotView, type ComputerStatus, type GroupSummary, isSignedIn, type McpServerSummary, type ThreadSummary } from "./api";
 import { authClient } from "./auth";
 import { Avatar, botMentions } from "./Avatar";
 import { Composer } from "./Composer";
@@ -112,7 +112,54 @@ function BotList({ bots, groups, currentId, currentGroupId, onOpen, onOpenGroup,
   );
 }
 
-function DetailsPanel({ view, index, models, onModel, onRole, onForget }: { view: BotView; index: number; models: string[]; onModel: (model: string) => void; onRole: (role: string) => void; onForget: (index: number) => void }) {
+function McpSection({ servers, enabled, onToggle, onAdd, onRemove }: { servers: McpServerSummary[]; enabled: string[]; onToggle: (id: string) => void; onAdd: (input: { name: string; url: string; token: string }) => Promise<boolean>; onRemove: (id: string) => void }) {
+  const [adding, setAdding] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [form, setForm] = useState({ name: "", url: "", token: "" });
+  const submit = async () => {
+    setBusy(true);
+    const added = await onAdd({ name: form.name.trim(), url: form.url.trim(), token: form.token.trim() });
+    setBusy(false);
+    if (!added) return;
+    setForm({ name: "", url: "", token: "" });
+    setAdding(false);
+  };
+  return (
+    <div className="flex flex-col">
+      <div className="mb-1 flex items-center justify-between">
+        <span className="text-fb-preview">MCP servers</span>
+        <button type="button" aria-label="Add MCP server" className={iconButton} onClick={() => setAdding(!adding)}><PlusIcon size={12} /></button>
+      </div>
+      {servers.map((server) => (
+        <div key={server.id} className="flex items-center justify-between gap-2 border-t border-fb-line py-1.5">
+          <button type="button" aria-pressed={enabled.includes(server.id)} onClick={() => onToggle(server.id)} className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left">
+            <span className={`grid size-4 shrink-0 place-items-center rounded border ${enabled.includes(server.id) ? "border-fb-me bg-fb-me text-fb-me-text" : "border-fb-line"}`}>
+              {enabled.includes(server.id) ? <CheckIcon size={10} /> : null}
+            </span>
+            <span className="min-w-0 truncate">{server.name}</span>
+          </button>
+          <button type="button" aria-label={`Remove ${server.name}`} className={iconButton} onClick={() => onRemove(server.id)}><XIcon size={12} /></button>
+        </div>
+      ))}
+      {adding ? (
+        <form
+          className="flex flex-col gap-2 border-t border-fb-line pt-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void submit();
+          }}
+        >
+          <Input aria-label="Name" placeholder="Name" size="sm" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
+          <Input aria-label="URL" placeholder="https://…/mcp" size="sm" value={form.url} onChange={(event) => setForm({ ...form, url: event.target.value })} />
+          <Input aria-label="Token" placeholder="Token" type="password" size="sm" value={form.token} onChange={(event) => setForm({ ...form, token: event.target.value })} />
+          <Button type="submit" size="sm" className="w-fit rounded-full! bg-fb-me! text-fb-me-text!" disabled={busy || form.name.trim() === "" || form.url.trim() === ""}>{busy ? "Connecting…" : "Add"}</Button>
+        </form>
+      ) : null}
+    </div>
+  );
+}
+
+function DetailsPanel({ view, index, models, mcpServers, onModel, onRole, onForget, onToggleMcp, onAddMcp, onRemoveMcp }: { view: BotView; index: number; models: string[]; mcpServers: McpServerSummary[]; onModel: (model: string) => void; onRole: (role: string) => void; onForget: (index: number) => void; onToggleMcp: (id: string) => void; onAddMcp: (input: { name: string; url: string; token: string }) => Promise<boolean>; onRemoveMcp: (id: string) => void }) {
   const options = models.map((model) => ({ value: model, label: model.split("/")[1] ?? model }));
   const [role, setRole] = useState(view.profile.role);
   const saveRole = () => {
@@ -141,6 +188,7 @@ function DetailsPanel({ view, index, models, onModel, onRole, onForget }: { view
         <span className="text-fb-preview">Artifacts repo</span>
         <span className="font-mono text-xs [overflow-wrap:anywhere]">{view.workspace.repo}</span>
       </div>
+      <McpSection servers={mcpServers} enabled={view.mcpServers.map((server) => server.id)} onToggle={onToggleMcp} onAdd={onAddMcp} onRemove={onRemoveMcp} />
       <div className="flex flex-col">
         <span className="mb-1 text-fb-preview">Memory</span>
         {view.memory.map((item, index) => (
@@ -251,6 +299,7 @@ function Workspace() {
   const [view, setView] = useState<BotView | null>(null);
   const [viewKey, setViewKey] = useState("");
   const [threadId, setThreadId] = useState<string | null>(null);
+  const [mcpServers, setMcpServers] = useState<McpServerSummary[]>([]);
   const [pending, setPending] = useState<string | null>(null);
   const [panel, setPanel] = useState<Panel | null>(null);
   const [computer, setComputer] = useState<ComputerStatus | null>(null);
@@ -315,6 +364,31 @@ function Workspace() {
     const timer = setInterval(() => void loadComputer(), idlePollMs);
     return () => clearInterval(timer);
   }, [panel, overlay, loadComputer]);
+
+  const loadMcp = useCallback(async () => {
+    const result = await guard(api.mcpServers);
+    if (result !== undefined) setMcpServers(result.servers);
+  }, [guard]);
+
+  useEffect(() => {
+    if (panel === "details") void loadMcp();
+  }, [panel, loadMcp]);
+
+  const toggleMcp = async (current: BotView | null, serverId: string) => {
+    if (currentId === null || current === null) return;
+    const enabled = current.mcpServers.map((server) => server.id);
+    const next = enabled.includes(serverId) ? enabled.filter((id) => id !== serverId) : [...enabled, serverId];
+    await guard(() => api.setBotMcp(currentId, next));
+    await loadView(currentId, threadId);
+  };
+
+  const addMcp = async (input: { name: string; url: string; token: string }): Promise<boolean> => {
+    const added = await guard(() => api.addMcpServer(input));
+    if (added === undefined) return false;
+    toasts.add({ title: `${added.server.name} connected`, description: `${added.tools} tools` });
+    await loadMcp();
+    return true;
+  };
 
   const shown = currentId !== null && viewKey === viewKeyOf(currentId, threadId) ? view : null;
   const summary = bots.find((bot) => bot.id === currentId);
@@ -420,6 +494,10 @@ function Workspace() {
                   onModel={(model) => currentId !== null && void guard(() => api.setModel(currentId, model)).then(() => loadView(currentId, threadId))}
                   onRole={(role) => currentId !== null && void guard(() => api.setRole(currentId, role)).then(() => Promise.all([loadView(currentId, threadId), loadBots()]))}
                   onForget={(index) => currentId !== null && void guard(() => api.forget(currentId, index)).then(() => loadView(currentId, threadId))}
+                  mcpServers={mcpServers}
+                  onToggleMcp={(serverId) => void toggleMcp(shown, serverId)}
+                  onAddMcp={addMcp}
+                  onRemoveMcp={(serverId) => void guard(() => api.removeMcpServer(serverId)).then(() => Promise.all([loadMcp(), currentId !== null ? loadView(currentId, threadId) : undefined]))}
                 />
               ) : null}
             </div>

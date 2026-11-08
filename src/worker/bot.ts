@@ -6,6 +6,7 @@ import { type Conversation, type ConversationId, createRegistry, Harness, type S
 import { openDurableObjectSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/cloudflare";
 import { DurableObject } from "cloudflare:workers";
 import { userName } from "./env";
+import type { McpServerSummary } from "./mcp";
 import { cloneState, commitAll, defaultRepoName, errorMessage, pushClone, type RepoResult } from "./repos";
 import { botExtension, type BotProfile, maxBotHops, type Takeover } from "./tools";
 import { botMessage, toTranscriptView, type TranscriptView } from "./view";
@@ -86,6 +87,7 @@ export interface BotView extends TranscriptView {
   takeover: Takeover | null;
   mailbox: MailboxCounts;
   workspace: Workspace;
+  mcpServers: McpServerSummary[];
   threads: ThreadSummary[];
 }
 
@@ -122,6 +124,11 @@ export class Bot extends DurableObject<Env> {
           setMemory: (items) => ctx.storage.kv.put("memory", items),
           setTakeover: (takeover) => ctx.storage.kv.put("takeover", takeover),
           workspace: () => this.#workspace(),
+          mcpServers: () => this.#mcpServers(),
+          mcpServer: async (name) => {
+            const summary = this.#mcpServers().find((server) => server.name.toLowerCase() === name.toLowerCase());
+            return summary === undefined ? null : this.env.USER.getByName(userName).mcpServer(summary.id);
+          },
           botHops: () => ctx.storage.kv.get<number>("botHops") ?? 0,
           isRoot: (conversationId) => conversationId === this.#root.id,
           threadOf: (conversationId) => {
@@ -216,6 +223,17 @@ export class Bot extends DurableObject<Env> {
     await (await this.#threadConversation(thread)).abort(context);
   }
 
+  async setMcpServers(ids: string[]): Promise<McpServerSummary[]> {
+    const available = await this.env.USER.getByName(userName).mcpServers();
+    const enabled = available.filter((server) => ids.includes(server.id));
+    this.ctx.storage.kv.put("mcpServers", enabled);
+    return enabled;
+  }
+
+  disableMcpServer(id: string): void {
+    this.ctx.storage.kv.put("mcpServers", this.#mcpServers().filter((server) => server.id !== id));
+  }
+
   async closeThread(threadId: string): Promise<void> {
     const thread = this.#openThread(threadId);
     if (thread === undefined) return;
@@ -304,6 +322,7 @@ export class Bot extends DurableObject<Env> {
         takeover: this.ctx.storage.kv.get<Takeover>("takeover") ?? null,
         mailbox: this.#mailboxCounts(),
         workspace: this.#workspace(),
+        mcpServers: this.#mcpServers(),
         threads: this.#storedThreads()
           .filter((thread) => !thread.closed)
           .map(summaryOf),
@@ -311,6 +330,10 @@ export class Bot extends DurableObject<Env> {
     } finally {
       state.dispose();
     }
+  }
+
+  #mcpServers(): McpServerSummary[] {
+    return this.ctx.storage.kv.get<McpServerSummary[]>("mcpServers") ?? [];
   }
 
   #workspace(): Workspace {

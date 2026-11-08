@@ -27,7 +27,8 @@ Inspired by the UX of [Grok Bot](https://docs.x.ai/grok-bot/overview).
 | Approvals, permissions, Secure Form, action log | Planned |
 | Skills and CLIs that each Bot creates and downloads for itself | Built, not yet run by a Bot |
 | Routines, dry run | Planned |
-| Connected apps, MCP, Vault, control of your Mac | Planned |
+| Remote MCP servers, added once and switched on per Bot | Built, connect and tool call tested locally |
+| Connected apps, MCP OAuth sign-in, Vault, control of your Mac | Planned |
 | Push notifications, voice | Planned |
 
 ## Quick start

@@ -1,5 +1,8 @@
 import { DurableObject } from "cloudflare:workers";
+import { listTools, type McpServerConfig, type McpServerSummary, serverSummary } from "./mcp";
 import type { BotProfile } from "./tools";
+
+export type AddMcpResult = { ok: true; server: McpServerSummary; tools: number } | { ok: false; error: string };
 
 export interface BotSummary extends BotProfile {
   typing: boolean;
@@ -23,6 +26,7 @@ export interface GroupSummary {
 }
 
 const defaultBotName = "Flare";
+const maxErrorChars = 200;
 
 export class User extends DurableObject<Env> {
   async list(): Promise<BotSummary[]> {
@@ -79,6 +83,42 @@ export class User extends DurableObject<Env> {
 
   updateGroup(id: string, patch: Pick<GroupSummary, "last" | "lastAt">): void {
     this.ctx.storage.kv.put("groups", this.groups().map((group) => (group.id === id ? { ...group, ...patch } : group)));
+  }
+
+  mcpServers(): McpServerSummary[] {
+    return this.#mcpServers().map(serverSummary);
+  }
+
+  mcpServer(id: string): McpServerConfig | null {
+    return this.#mcpServers().find((server) => server.id === id) ?? null;
+  }
+
+  async addMcpServer(input: { name: string; url: string; description: string; token: string }): Promise<AddMcpResult> {
+    if (this.#mcpServers().some((server) => server.name.toLowerCase() === input.name.toLowerCase())) return { ok: false, error: `An MCP server named ${input.name} already exists` };
+    const server: McpServerConfig = {
+      id: crypto.randomUUID(),
+      name: input.name,
+      url: input.url,
+      description: input.description,
+      headers: input.token === "" ? {} : { authorization: `Bearer ${input.token}` },
+    };
+    try {
+      const tools = await listTools(server);
+      this.ctx.storage.kv.put("mcpServers", [...this.#mcpServers(), server]);
+      return { ok: true, server: serverSummary(server), tools: tools.length };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { ok: false, error: `Could not connect: ${message.length > maxErrorChars ? `${message.slice(0, maxErrorChars)}…` : message}` };
+    }
+  }
+
+  async removeMcpServer(id: string): Promise<void> {
+    this.ctx.storage.kv.put("mcpServers", this.#mcpServers().filter((server) => server.id !== id));
+    await Promise.allSettled(this.#bots().map((bot) => this.env.BOT.getByName(bot.id).disableMcpServer(id)));
+  }
+
+  #mcpServers(): McpServerConfig[] {
+    return this.ctx.storage.kv.get<McpServerConfig[]>("mcpServers") ?? [];
   }
 
   #bots(): BotSummary[] {

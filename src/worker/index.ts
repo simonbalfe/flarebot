@@ -15,6 +15,13 @@ const newBotBody = z.object({
   role: roleSchema.default(""),
 });
 const roleBody = z.object({ role: roleSchema });
+const mcpServerBody = z.object({
+  name: z.string().trim().regex(/^[A-Za-z0-9][A-Za-z0-9 _.-]{0,39}$/),
+  url: z.url({ protocol: /^https?$/ }),
+  description: z.string().trim().max(300).default(""),
+  token: z.string().trim().max(4000).default(""),
+});
+const botMcpBody = z.object({ serverIds: z.array(z.string()).max(50) });
 const newGroupBody = z.object({
   name: z.string().trim().max(60).default(""),
   botIds: z.array(z.string()).min(2).max(6),
@@ -159,6 +166,25 @@ app.put("/api/bots/:id/model", async (c) => {
   await bot.setModel(body.model);
   await user(c.env).updateBot(id, { model: body.model });
   return c.body(null, 204);
+});
+
+app.get("/api/mcp", async (c) => c.json({ servers: await user(c.env).mcpServers() }));
+
+app.post("/api/mcp", async (c) => {
+  const body = mcpServerBody.parse(await c.req.json());
+  const result = await user(c.env).addMcpServer(body);
+  return result.ok ? c.json({ server: result.server, tools: result.tools }, 201) : c.json({ error: result.error }, 400);
+});
+
+app.delete("/api/mcp/:id", async (c) => {
+  await user(c.env).removeMcpServer(c.req.param("id"));
+  return c.body(null, 204);
+});
+
+app.put("/api/bots/:id/mcp", async (c) => {
+  const body = botMcpBody.parse(await c.req.json());
+  const bot = await ownedBot(c.env, c.req.param("id"));
+  return c.json({ servers: await bot.setMcpServers(body.serverIds) });
 });
 
 app.put("/api/bots/:id/role", async (c) => {

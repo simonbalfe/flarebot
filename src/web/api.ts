@@ -1,9 +1,10 @@
 import type { BotView, ThreadSummary } from "../worker/bot";
 import type { ComputerStatus } from "../worker/computer";
 import type { GroupView } from "../worker/group";
+import type { McpServerSummary } from "../worker/mcp";
 import type { BotSummary, GroupSummary } from "../worker/user";
 
-export type { BotSummary, BotView, ComputerStatus, GroupSummary, GroupView, ThreadSummary };
+export type { BotSummary, BotView, ComputerStatus, GroupSummary, GroupView, McpServerSummary, ThreadSummary };
 export type { TranscriptItem } from "../worker/view";
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
@@ -38,6 +39,10 @@ export const api = {
   group: (id: string) => call<GroupView>(`/groups/${encodeURIComponent(id)}`),
   sendGroup: (id: string, text: string) => call<void>(`/groups/${encodeURIComponent(id)}/messages`, { method: "POST", body: JSON.stringify({ text }) }),
   stopGroup: (id: string) => call<void>(`/groups/${encodeURIComponent(id)}/stop`, { method: "POST" }),
+  mcpServers: () => call<{ servers: McpServerSummary[] }>("/mcp"),
+  addMcpServer: (input: { name: string; url: string; token: string }) => call<{ server: McpServerSummary; tools: number }>("/mcp", { method: "POST", body: JSON.stringify(input) }),
+  removeMcpServer: (serverId: string) => call<void>(`/mcp/${encodeURIComponent(serverId)}`, { method: "DELETE" }),
+  setBotMcp: (id: string, serverIds: string[]) => call<{ servers: McpServerSummary[] }>(`${botPath(id)}/mcp`, { method: "PUT", body: JSON.stringify({ serverIds }) }),
   startThread: (id: string) => call<ThreadSummary>(`${botPath(id)}/threads`, { method: "POST" }),
   thread: (id: string, threadId: string) => call<BotView>(threadPath(id, threadId)),
   sendThread: (id: string, threadId: string, text: string) => call<void>(`${threadPath(id, threadId)}/messages`, { method: "POST", body: JSON.stringify({ text }) }),

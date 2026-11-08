@@ -24,6 +24,7 @@ Run both checks after every code change. Docker or OrbStack must be running for 
 | `src/worker/mentions.ts` | Matches `@` mentions and plain Bot names in group messages |
 | `src/worker/router.ts` | Model call that picks Bots for a group message with no name |
 | `src/worker/repos.ts` | Each Bot's folder repo in Artifacts: create, clone into the folder, commit, pull, push, with short-lived tokens |
+| `src/worker/mcp.ts` | Remote MCP servers through `@earendil-works/pi-mcp`: list tools, call a tool |
 | `src/worker/computer.ts` | `Computer` Durable Object: container, commands, snapshots, a browser tab per Bot |
 | `src/worker/auth.ts` | Better Auth magic links and the API session check |
 | `migrations/` | D1 schema for Better Auth |

@@ -197,6 +197,30 @@ Each Bot's folder, `/workspace/bots/<Bot ID>`, is a git clone of the Bot's own C
 - Work since the last auto-save lives only on the computer, so a reset mid-turn loses it.
 - Local dev uses the remote Artifacts service, so `scripts/dev.sh` sets `CLOUDFLARE_ACCOUNT_ID` and needs `wrangler login`.
 
+## MCP servers
+
+Remote MCP servers are added once and switched on per Bot, so each Bot only sees the servers that fit its role. `src/worker/mcp.ts` wraps `@earendil-works/pi-mcp`, pi's MCP client, over Streamable HTTP.
+
+| Action | API |
+| --- | --- |
+| List servers | `GET /api/mcp` |
+| Add a server | `POST /api/mcp` with `name`, `url`, optional `description` and `token` |
+| Remove a server | `DELETE /api/mcp/:id`, which also switches it off for every Bot |
+| Choose a Bot's servers | `PUT /api/bots/:id/mcp` with `serverIds` |
+
+1. Adding a server connects and lists its tools first, and refuses the server if that fails. The `User` storage keeps the server under `mcpServers`, with the token as an `authorization: Bearer` header.
+2. The token never leaves the Worker: the API and the Bot's view show only `hasToken`, and the prompt shows only names and descriptions.
+3. A Bot keeps its switched-on servers under `mcpServers` in its storage, and its prompt lists them.
+4. `mcp_list_tools(server)` returns a server's tools with their input schemas, and `mcp_call(server, tool, arguments)` runs one. Each call opens a session, runs, and closes it, with no server-to-client stream.
+5. Results go through `toLlmContent`, which keeps text and images and turns other content into short text. Text over 30,000 characters is cut.
+
+The Details panel lists the servers with a checkbox for this Bot, adds one with **+** (name, URL, token), and removes one with its **×**.
+
+**Limits:**
+- Bearer tokens only. Servers that need an OAuth sign-in aren't supported yet, though `pi-mcp` has the OAuth client for it.
+- Streamable HTTP only, no stdio servers.
+- MCP tools are reached through the two generic tools rather than as one tool each.
+
 ## Known limits
 
 | Area | Limit |
