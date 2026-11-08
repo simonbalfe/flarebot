@@ -1,4 +1,4 @@
-const shellCache = "flarebot-shell-v2";
+const shellCache = "flarebot-shell-v3";
 const serverPaths = ["/api/", "/mac/"];
 
 self.addEventListener("install", (event) => {

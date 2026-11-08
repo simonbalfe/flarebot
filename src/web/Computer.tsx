@@ -20,7 +20,7 @@ export function ComputerPanel({ status, onOpen, onStart, onStop }: { status: Com
   const running = status?.running === true;
   return (
     <div className="flex flex-col gap-3">
-      <div className="fb-continuous relative aspect-[16/10] overflow-hidden rounded-[18px] bg-fb-sidebar">
+      <div className="relative aspect-[16/10] overflow-hidden rounded-[18px] bg-fb-sidebar">
         {running ? (
           <button type="button" aria-label="Open computer" onClick={onOpen} className="absolute inset-0 cursor-pointer"><Screen title="Computer preview" viewOnly /></button>
         ) : (
@@ -61,9 +61,9 @@ export function TakeOver({ name, onDone, onClose }: { name: string; onDone: () =
           </div>
         </Dialog>
       ) : (
-        <Dialog size="xl" className="flex w-[calc(100vw-2rem)]! max-w-[960px]! flex-col gap-2 rounded-[28px]! border-0! bg-fb-pane! p-2.5! [corner-shape:squircle]">
+        <Dialog size="xl" className="flex w-[calc(100vw-2rem)]! max-w-[960px]! flex-col gap-2 rounded-[28px]! border-0! bg-fb-pane! p-2.5!">
           {bar}
-          <div className="fb-continuous relative aspect-[16/10] overflow-hidden rounded-[20px] bg-fb-sidebar">
+          <div className="relative aspect-[16/10] overflow-hidden rounded-[20px] bg-fb-sidebar">
             <Screen key={String(mine)} title="Computer" viewOnly={!mine} />
           </div>
         </Dialog>
