@@ -1,8 +1,8 @@
 import { z } from "zod";
+import { type ClaudeConnection, claudeText } from "./claude";
+import { routerEffort } from "./env";
 
-const openRouterUrl = "https://openrouter.ai/api/v1/chat/completions";
-const routerTimeoutMs = 8000;
-const routerMaxTokens = 100;
+const routerTimeoutMs = 30_000;
 
 const systemPrompt = [
   "You decide which Bots in a group chat should answer the user's latest message.",
@@ -13,9 +13,6 @@ const systemPrompt = [
   'Reply with JSON only, in this shape: {"bots":["Name"]}',
 ].join(" ");
 
-const completionSchema = z.object({
-  choices: z.array(z.object({ message: z.object({ content: z.string() }) })).min(1),
-});
 const routeSchema = z.object({ bots: z.array(z.string()) });
 
 export interface RouteCandidate {
@@ -25,7 +22,7 @@ export interface RouteCandidate {
 }
 
 export interface RouteRequest {
-  apiKey: string;
+  connection: ClaudeConnection;
   model: string;
   members: RouteCandidate[];
   recent: string;
@@ -39,22 +36,15 @@ function jsonIn(text: string): unknown {
 }
 
 export async function chooseBots(request: RouteRequest): Promise<string[]> {
-  const response = await fetch(openRouterUrl, {
-    method: "POST",
+  const reply = await claudeText({
+    connection: request.connection,
+    model: request.model,
+    effort: routerEffort,
+    system: systemPrompt,
+    user: JSON.stringify({ members: request.members, recent: request.recent, message: request.message }),
     signal: AbortSignal.timeout(routerTimeoutMs),
-    headers: { authorization: `Bearer ${request.apiKey}`, "content-type": "application/json" },
-    body: JSON.stringify({
-      model: request.model,
-      max_tokens: routerMaxTokens,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: JSON.stringify({ members: request.members, recent: request.recent, message: request.message }) },
-      ],
-    }),
   });
-  if (!response.ok) throw new Error(`Router returned HTTP ${response.status}`);
-  const completion = completionSchema.parse(await response.json());
-  const route = routeSchema.parse(jsonIn(completion.choices[0]?.message.content ?? ""));
+  const route = routeSchema.parse(jsonIn(reply));
   const chosen = route.bots.map((name) => name.toLowerCase());
   return request.members.filter((member) => chosen.includes(member.name.toLowerCase())).map((member) => member.name);
 }

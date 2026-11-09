@@ -1,7 +1,7 @@
 import { Button, createKumoToastManager, Dialog, DropdownMenu, Input, Select, Sidebar, Toasty } from "@cloudflare/kumo";
 import { BellIcon, BellSlashIcon, CaretLeftIcon, CaretRightIcon, CheckIcon, CopyIcon, LockSimpleIcon, MagnifyingGlassIcon, MonitorIcon, PlusIcon, SignOutIcon, UploadSimpleIcon, UsersThreeIcon, XIcon } from "@phosphor-icons/react";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
-import { api, type BotSummary, type BotView, type CliSummary, type ComputerStatus, type GroupSummary, isSignedIn, type MacStatus, type McpServerSummary, type OwnSkill, type PoolKind, type SkillSummary, type ThreadSummary } from "./api";
+import { api, type BotSummary, type BotView, type CliSummary, type ComputerStatus, type GroupSummary, isSignedIn, type MacStatus, type McpServerSummary, type OwnSkill, type PickerOption, type PoolKind, type SkillSummary, type ThreadSummary } from "./api";
 import { authClient } from "./auth";
 import { Avatar, botMentions } from "./Avatar";
 import { Composer } from "./Composer";
@@ -19,6 +19,7 @@ const busyPollMs = 800;
 const idlePollMs = 3000;
 const macPollMs = 5000;
 const repeatErrorMs = 10_000;
+const pollErrorGraceMs = 15_000;
 const sidebarWidth = 280;
 const minGroupBots = 2;
 const maxGroupBots = 6;
@@ -220,7 +221,7 @@ function McpSection({ servers, enabled, onToggle, onAdd, onRemove }: { servers: 
             </span>
             <span className="min-w-0 truncate">{server.name}</span>
           </button>
-          <button type="button" aria-label={`Remove ${server.name}`} className={iconButton} onClick={() => onRemove(server.id)}><XIcon size={12} /></button>
+          {server.builtIn ? null : <button type="button" aria-label={`Remove ${server.name}`} className={iconButton} onClick={() => onRemove(server.id)}><XIcon size={12} /></button>}
         </div>
       ))}
       {adding ? (
@@ -391,8 +392,9 @@ function SkillForm({ onAdd, onDone }: { onAdd: (file: File) => Promise<boolean>;
   );
 }
 
-function DetailsPanel({ view, index, models, mcpServers, onModel, onRole, onForget, onToggleMcp, onAddMcp, onRemoveMcp, children }: { view: BotView; index: number; models: string[]; mcpServers: McpServerSummary[]; onModel: (model: string) => void; onRole: (role: string) => void; onForget: (index: number) => void; onToggleMcp: (id: string) => void; onAddMcp: (input: { name: string; url: string; token: string }) => Promise<boolean>; onRemoveMcp: (id: string) => void; children: ReactNode }) {
-  const options = models.map((model) => ({ value: model, label: model.split("/")[1] ?? model }));
+function DetailsPanel({ view, index, models, efforts, mcpServers, onModel, onEffort, onClear, onRole, onForget, onToggleMcp, onAddMcp, onRemoveMcp, children }: { view: BotView; index: number; models: PickerOption[]; efforts: PickerOption[]; mcpServers: McpServerSummary[]; onModel: (model: string) => void; onEffort: (effort: string) => void; onClear: () => void; onRole: (role: string) => void; onForget: (index: number) => void; onToggleMcp: (id: string) => void; onAddMcp: (input: { name: string; url: string; token: string }) => Promise<boolean>; onRemoveMcp: (id: string) => void; children: ReactNode }) {
+  const modelItems = models.map((model) => ({ value: model.id, label: model.label }));
+  const effortItems = efforts.map((effort) => ({ value: effort.id, label: effort.label }));
   const [role, setRole] = useState(view.profile.role);
   const saveRole = () => {
     if (role.trim() !== view.profile.role) onRole(role.trim());
@@ -413,7 +415,10 @@ function DetailsPanel({ view, index, models, mcpServers, onModel, onRole, onForg
           if (event.key === "Enter") event.currentTarget.blur();
         }}
       />
-      <Select<string> label="Model" hideLabel={false} size="sm" value={view.profile.model} items={options} onValueChange={(model) => model !== null && onModel(model)} />
+      <div className="grid grid-cols-2 gap-2">
+        <Select<string> label="Model" hideLabel={false} size="sm" value={view.profile.model} items={modelItems} onValueChange={(model) => model !== null && onModel(model)} />
+        <Select<string> label="Effort" hideLabel={false} size="sm" value={view.profile.effort} items={effortItems} onValueChange={(effort) => effort !== null && onEffort(effort)} />
+      </div>
       <div className="flex flex-col gap-0.5">
         <span className="text-fb-preview">Folder</span>
         <span className="font-mono text-xs [overflow-wrap:anywhere]">{view.workspace.path}</span>
@@ -431,6 +436,7 @@ function DetailsPanel({ view, index, models, mcpServers, onModel, onRole, onForg
           </div>
         ))}
       </div>
+      <Button type="button" size="sm" variant="secondary" className="rounded-full!" onClick={onClear}>Clear chat</Button>
     </div>
   );
 }
@@ -539,7 +545,8 @@ function NewGroup({ bots, onCreate, onClose }: { bots: BotSummary[]; onCreate: (
 
 function Workspace() {
   const [bots, setBots] = useState<BotSummary[]>([]);
-  const [models, setModels] = useState<string[]>([]);
+  const [models, setModels] = useState<PickerOption[]>([]);
+  const [efforts, setEfforts] = useState<PickerOption[]>([]);
   const [groups, setGroups] = useState<GroupSummary[]>([]);
   const [currentId, setCurrentId] = useState<string | null>(null);
   const [currentGroupId, setCurrentGroupId] = useState<string | null>(null);
@@ -614,22 +621,47 @@ function Workspace() {
     }
   }, [showError]);
 
+  const pollFailingSince = useRef(new Map<string, number>());
+
+  useEffect(() => {
+    const clearWhenVisible = () => {
+      if (document.visibilityState === "visible") pollFailingSince.current.clear();
+    };
+    document.addEventListener("visibilitychange", clearWhenVisible);
+    return () => document.removeEventListener("visibilitychange", clearWhenVisible);
+  }, []);
+
+  const poll = useCallback(async <T,>(key: string, work: () => Promise<T>): Promise<T | undefined> => {
+    try {
+      const result = await work();
+      pollFailingSince.current.delete(key);
+      return result;
+    } catch (error) {
+      const now = Date.now();
+      const failingSince = pollFailingSince.current.get(key) ?? now;
+      pollFailingSince.current.set(key, failingSince);
+      if (document.visibilityState === "visible" && now - failingSince >= pollErrorGraceMs) showError(error);
+      return undefined;
+    }
+  }, [showError]);
+
   const loadBots = useCallback(async () => {
-    const result = await guard(api.bots);
+    const result = await poll("bots", api.bots);
     if (result === undefined) return;
     setBots(result.bots);
     setGroups(result.groups);
     setModels(result.models);
+    setEfforts(result.efforts);
     setProjects(result.projects);
     setCurrentId((current) => (current !== null && result.bots.some((bot) => bot.id === current) ? current : (result.bots[0]?.id ?? null)));
-  }, [guard]);
+  }, [poll]);
 
   const loadView = useCallback(async (id: string, thread: string | null) => {
-    const result = await guard(() => (thread === null ? api.bot(id) : api.thread(id, thread)));
+    const result = await poll("view", () => (thread === null ? api.bot(id) : api.thread(id, thread)));
     if (result === undefined) return;
     setView(result);
     setViewKey(viewKeyOf(id, thread));
-  }, [guard]);
+  }, [poll]);
 
   useEffect(() => {
     void loadBots();
@@ -646,9 +678,9 @@ function Workspace() {
   }, [currentId, threadId, busy, loadView]);
 
   const loadComputer = useCallback(async () => {
-    const result = await guard(api.computer);
+    const result = await poll("computer", api.computer);
     if (result !== undefined) setComputer(result);
-  }, [guard]);
+  }, [poll]);
 
   useEffect(() => {
     if (panel !== "computer" && overlay !== "take") return;
@@ -669,9 +701,9 @@ function Workspace() {
   }, [guard]);
 
   const loadMac = useCallback(async () => {
-    const result = await guard(api.mac);
+    const result = await poll("mac", api.mac);
     if (result !== undefined) setMacStatus(result);
-  }, [guard]);
+  }, [poll]);
 
   useEffect(() => {
     if (panel !== "details") return;
@@ -889,7 +921,7 @@ function Workspace() {
         )}
       </>
     ) : (
-      <GroupPane group={currentGroup} bots={bots} onError={showError} />
+      <GroupPane group={currentGroup} bots={bots} poll={poll} onError={showError} />
     );
 
   const panelView =
@@ -922,7 +954,10 @@ function Workspace() {
                   view={shown}
                   index={summary === undefined ? 0 : bots.indexOf(summary)}
                   models={models}
+                  efforts={efforts}
                   onModel={(model) => currentId !== null && void guard(() => api.setModel(currentId, model)).then(() => loadView(currentId, threadId))}
+                  onEffort={(effort) => currentId !== null && void guard(() => api.setEffort(currentId, effort)).then(() => loadView(currentId, threadId))}
+                  onClear={() => currentId !== null && window.confirm(`Clear ${shown.profile.name}'s main chat?`) && void guard(() => api.clearMain(currentId)).then(() => Promise.all([loadView(currentId, threadId), loadBots()]))}
                   onRole={(role) => currentId !== null && void guard(() => api.setRole(currentId, role)).then(() => Promise.all([loadView(currentId, threadId), loadBots()]))}
                   onForget={(index) => currentId !== null && void guard(() => api.forget(currentId, index)).then(() => loadView(currentId, threadId))}
                   mcpServers={mcpServers}

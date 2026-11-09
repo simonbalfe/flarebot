@@ -6,12 +6,13 @@ import daemonSource from "../../scripts/flarebot-local.ts?raw";
 import { macInstallScript } from "./mac-install";
 import { cliNamePattern } from "./pool";
 import { pushSubscriptionSchema } from "./push";
-import { type AppEnv, computerName, macName, models, userName } from "./env";
+import { type AppEnv, computerName, effortLabels, efforts, macName, modelLabels, models, userName } from "./env";
 
 export { Bot } from "./bot";
 export { Computer } from "./computer";
 export { Group } from "./group";
 export { Mac } from "./mac";
+export { ModelContainer } from "./model-container";
 export { User } from "./user";
 
 const roleSchema = z.string().trim().max(500);
@@ -47,6 +48,7 @@ const newGroupBody = z.object({
 });
 const messageBody = z.object({ text: z.string().trim().min(1).max(20_000) });
 const modelBody = z.object({ model: z.enum(models) });
+const effortBody = z.object({ effort: z.enum(efforts) });
 const cookiesBody = z.object({ cookies: z.array(z.record(z.string(), z.unknown())).max(50_000) });
 const fileQuery = z.object({
   path: z.string().regex(/^\/workspace\/(?!.*\.\.)[A-Za-z0-9._\/-]+$/),
@@ -125,7 +127,7 @@ async function ownedGroup(env: Env, id: string) {
   return env.GROUP.getByName(id);
 }
 
-app.get("/api/bots", async (c) => c.json({ bots: await user(c.env).list(), groups: await user(c.env).groups(), projects: await user(c.env).projects(), models }));
+app.get("/api/bots", async (c) => c.json({ bots: await user(c.env).list(), groups: await user(c.env).groups(), projects: await user(c.env).projects(), models: models.map((id) => ({ id, label: modelLabels[id] })), efforts: efforts.map((id) => ({ id, label: effortLabels[id] })) }));
 
 app.post("/api/groups", async (c) => {
   const body = newGroupBody.parse(await c.req.json());
@@ -266,12 +268,25 @@ app.post("/api/bots/:id/stop", async (c) => {
   return c.body(null, 204);
 });
 
+app.post("/api/bots/:id/clear", async (c) => {
+  const bot = await ownedBot(c.env, c.req.param("id"));
+  await bot.clearMain();
+  return c.body(null, 204);
+});
+
 app.put("/api/bots/:id/model", async (c) => {
   const body = modelBody.parse(await c.req.json());
   const id = c.req.param("id");
   const bot = await ownedBot(c.env, id);
   await bot.setModel(body.model);
   await user(c.env).updateBot(id, { model: body.model });
+  return c.body(null, 204);
+});
+
+app.put("/api/bots/:id/effort", async (c) => {
+  const body = effortBody.parse(await c.req.json());
+  const bot = await ownedBot(c.env, c.req.param("id"));
+  await bot.setEffort(body.effort);
   return c.body(null, 204);
 });
 

@@ -2,6 +2,8 @@ import { type LlmContent, McpClient, StreamableHttpTransport, toLlmContent } fro
 
 const maxTextChars = 30_000;
 const clientInfo = { name: "flarebot", version: "0.1.0" };
+const codemodeServerId = "codemode";
+const codemodeDescription = "Gateway to external APIs and connected MCP servers. Its code tool runs JavaScript with a codemode object. Call codemode.start({}) first.";
 
 export interface McpServerConfig {
   id: string;
@@ -17,6 +19,7 @@ export interface McpServerSummary {
   url: string;
   description: string;
   hasToken: boolean;
+  builtIn: boolean;
 }
 
 export interface McpTool {
@@ -31,7 +34,15 @@ export interface McpCallResult {
 }
 
 export function serverSummary(server: McpServerConfig): McpServerSummary {
-  return { id: server.id, name: server.name, url: server.url, description: server.description, hasToken: Object.keys(server.headers).length > 0 };
+  return { id: server.id, name: server.name, url: server.url, description: server.description, hasToken: Object.keys(server.headers).length > 0, builtIn: isBuiltInServer(server.id) };
+}
+
+export function isBuiltInServer(id: string): boolean {
+  return id === codemodeServerId;
+}
+
+export function codemodeServer(env: Env): McpServerConfig {
+  return { id: codemodeServerId, name: codemodeServerId, url: env.CODEMODE_MCP_URL, description: codemodeDescription, headers: { authorization: `Bearer ${env.CODEMODE_API_KEY}` } };
 }
 
 function clip(content: LlmContent): LlmContent {

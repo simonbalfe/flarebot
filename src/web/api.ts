@@ -8,13 +8,17 @@ import type { BotSummary, GroupSummary } from "../worker/user";
 
 export type { BotSummary, BotView, CliSummary, ComputerStatus, GroupSummary, GroupView, MacStatus, McpServerSummary, OwnSkill, PoolKind, SkillSummary, ThreadSummary };
 export type { TranscriptItem } from "../worker/view";
+export type PickerOption = { id: string; label: string };
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`/api${path}`, {
     ...init,
     headers: init?.body === undefined ? undefined : { "content-type": "application/json" },
   });
-  if (response.status === 401) window.location.reload();
+  if (response.status === 401) {
+    window.location.reload();
+    return new Promise<T>(() => undefined);
+  }
   if (!response.ok) {
     const body: unknown = await response.json().catch(() => null);
     const message = typeof body === "object" && body !== null && "error" in body && typeof body.error === "string" ? body.error : `HTTP ${response.status}`;
@@ -35,14 +39,16 @@ const botPath = (id: string) => `/bots/${encodeURIComponent(id)}`;
 const threadPath = (id: string, threadId: string) => `${botPath(id)}/threads/${encodeURIComponent(threadId)}`;
 
 export const api = {
-  bots: () => call<{ bots: BotSummary[]; groups: GroupSummary[]; projects: string[]; models: string[] }>("/bots"),
+  bots: () => call<{ bots: BotSummary[]; groups: GroupSummary[]; projects: string[]; models: PickerOption[]; efforts: PickerOption[] }>("/bots"),
   createBot: (input: { name: string; role: string }) => call<BotSummary>("/bots", { method: "POST", body: JSON.stringify(input) }),
   setRole: (id: string, role: string) => call<void>(`${botPath(id)}/role`, { method: "PUT", body: JSON.stringify({ role }) }),
   bot: (id: string) => call<BotView>(botPath(id)),
   send: (id: string, text: string) => call<void>(`${botPath(id)}/messages`, { method: "POST", body: JSON.stringify({ text }) }),
   finishTakeover: (id: string) => call<void>(`${botPath(id)}/takeover/done`, { method: "POST" }),
   stop: (id: string) => call<void>(`${botPath(id)}/stop`, { method: "POST" }),
+  clearMain: (id: string) => call<void>(`${botPath(id)}/clear`, { method: "POST" }),
   setModel: (id: string, model: string) => call<void>(`${botPath(id)}/model`, { method: "PUT", body: JSON.stringify({ model }) }),
+  setEffort: (id: string, effort: string) => call<void>(`${botPath(id)}/effort`, { method: "PUT", body: JSON.stringify({ effort }) }),
   forget: (id: string, index: number) => call<void>(`${botPath(id)}/memory/${index}`, { method: "DELETE" }),
   createGroup: (input: { name: string; botIds: string[] }) => call<GroupSummary>("/groups", { method: "POST", body: JSON.stringify(input) }),
   group: (id: string) => call<GroupView>(`/groups/${encodeURIComponent(id)}`),
@@ -84,8 +90,12 @@ export const api = {
 };
 
 export async function isSignedIn(): Promise<boolean> {
-  const response = await fetch("/api/session");
-  return response.ok;
+  try {
+    const response = await fetch("/api/session");
+    return response.status !== 401;
+  } catch {
+    return true;
+  }
 }
 
 export function screenUrl(viewOnly: boolean): string {

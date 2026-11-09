@@ -10,7 +10,7 @@ bunx wrangler deploy --domain "$domain"
 
 secrets_json() {
   sec run -- bun -e '
-    const names = ["OPENROUTER_API_KEY", "BETTER_AUTH_SECRET", "FLAREBOT_ALLOWED_EMAILS", "FLAREBOT_MAIL_FROM"];
+    const names = ["CLAUDE_CODE_OAUTH_TOKEN", "CODEMODE_API_KEY", "BETTER_AUTH_SECRET", "FLAREBOT_ALLOWED_EMAILS", "FLAREBOT_MAIL_FROM", "LANGFUSE_HOST", "LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY"];
     const secrets = Object.fromEntries(names.map((name) => [name, process.env[name]]));
     console.log(JSON.stringify({ ...secrets, FLAREBOT_APP_URL: `https://${process.env.FLAREBOT_DOMAIN}` }));
   '

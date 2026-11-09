@@ -13,9 +13,10 @@ Inspired by the UX of [Grok Bot](https://docs.x.ai/grok-bot/overview).
 | Feature | Status |
 | --- | --- |
 | Named Bots with a role, chat, steering and stop | Built |
-| Memory managed through chat, and a model picker | Built |
+| Memory managed through chat, and a model and effort picker per Bot | Built |
 | One shared computer and Chrome, with a window and folder per Bot | Built, tab control tested locally |
 | Threads per Bot: start, switch, stop and close | Built, start and close tested locally |
+| Clear a Bot's main chat from Details, keeping its memory, folder and threads | Built, tested locally |
 | Each Bot's folder is a clone of its own Cloudflare Artifacts repo, shared by all its threads and auto-saved when the Bot goes idle | Built, clone and auto-save tested locally |
 | Projects: shared Artifacts repos any Bot can start a thread in, on its own branch | Built, clone tested locally |
 | Edit and delete Bots, rename and delete groups, from a right-click menu | Built, tested locally |
@@ -30,13 +31,14 @@ Inspired by the UX of [Grok Bot](https://docs.x.ai/grok-bot/overview).
 | Approvals, permissions, Secure Form, action log | Planned |
 | Skills and CLIs that each Bot creates and downloads for itself | Built, not yet run by a Bot |
 | Routines, dry run | Planned |
-| Remote MCP servers, added once and switched on per Bot | Built, connect and tool call tested locally |
+| Remote MCP servers, added once and switched on per Bot, with the codemode gateway built in | Built, connect and tool call tested locally |
 | One shared pool of CLIs and Agent Skills in Artifacts, ticked per Bot | Built, add, tick and remove tested locally |
 | Bots write their own CLIs in any language and skills, and publish them to the pool | Built, a Bot has published a Go CLI; skill publishing not yet run by a Bot |
 | Your own Mac as native Bot tools, through the `flarebot-local` daemon, with allowed folders and an approval dialog per action | Built, run by a Bot on live |
 | One-line Mac install with a LaunchAgent, a folder picker and browser approval instead of pairing codes | Built, link flow and daemon tested locally |
 | Connected apps, MCP OAuth sign-in, Vault | Planned |
 | Push notifications when a Bot finishes, from the bell in the chat list | Built, encryption and signing checked locally |
+| Optional Langfuse traces for every model turn, on when the `LANGFUSE_*` secrets are in Infisical | Built |
 | Voice | Planned |
 
 ## Quick start
@@ -70,7 +72,7 @@ Read [Cookie import](docs/architecture.md#cookie-import) before importing. Every
 
 ![You chat with each Bot. Bots message each other. Each Bot's threads work in one folder that auto-saves to its own Artifacts repo.](docs/how-it-works.svg)
 
-- **Bot:** a Durable Object with its own role, memory, threads and inbox. It runs the agent loop on OpenRouter models.
+- **Bot:** a Durable Object with its own role, memory, threads and inbox. It runs the agent loop on your Claude subscription, through the Claude Agent SDK in a container.
 - **Threads:** each thread is a new conversation, in the Bot's own folder or in a project.
 - **Projects:** shared Artifacts repos. A Bot works in a project on its own branch, `flarebot/<Bot repo>`.
 - **Messages:** any Bot can message any other Bot through that Bot's inbox, and the answer comes back the same way.

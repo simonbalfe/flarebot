@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
-import { listTools, type McpServerConfig, type McpServerSummary, serverSummary } from "./mcp";
+import { claudeModelId, defaultEffort } from "./env";
+import { codemodeServer, isBuiltInServer, listTools, type McpServerConfig, type McpServerSummary, serverSummary } from "./mcp";
 import { addCli, type CliSummary, ensurePool, inspectSkill, type PoolKind, publishCli, publishSkill, removeItem, unpackUpload } from "./pool";
 import { createVapidKeys, type PushMessage, type PushSubscriptionInput, sendPush, type VapidKeys } from "./push";
 import { projectExists } from "./repos";
@@ -11,7 +12,7 @@ type StoredItem = Omit<CliSummary, "publishedBy"> & { publishedBy?: string | nul
 
 export type AddMcpResult = { ok: true; server: McpServerSummary; tools: number } | { ok: false; error: string };
 
-export interface BotSummary extends BotProfile {
+export interface BotSummary extends Omit<BotProfile, "effort"> {
   typing: boolean;
   last: string;
   lastAt: number;
@@ -61,7 +62,7 @@ export class User extends DurableObject<Env> {
       needsYou: false,
       primary: input.primary ?? false,
     };
-    await this.env.BOT.getByName(bot.id).init({ id: bot.id, name: bot.name, role: bot.role, model: bot.model });
+    await this.env.BOT.getByName(bot.id).init({ id: bot.id, name: bot.name, role: bot.role, model: bot.model, effort: defaultEffort });
     this.ctx.storage.kv.put("bots", [...this.#bots(), bot]);
     return bot;
   }
@@ -225,7 +226,7 @@ export class User extends DurableObject<Env> {
     };
     try {
       const tools = await listTools(server);
-      this.ctx.storage.kv.put("mcpServers", [...this.#mcpServers(), server]);
+      this.ctx.storage.kv.put("mcpServers", [...this.#storedMcpServers(), server]);
       return { ok: true, server: serverSummary(server), tools: tools.length };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -234,7 +235,8 @@ export class User extends DurableObject<Env> {
   }
 
   async removeMcpServer(id: string): Promise<void> {
-    this.ctx.storage.kv.put("mcpServers", this.#mcpServers().filter((server) => server.id !== id));
+    if (isBuiltInServer(id)) return;
+    this.ctx.storage.kv.put("mcpServers", this.#storedMcpServers().filter((server) => server.id !== id));
     await Promise.allSettled(this.#bots().map((bot) => this.env.BOT.getByName(bot.id).disableMcpServer(id)));
   }
 
@@ -279,10 +281,14 @@ export class User extends DurableObject<Env> {
   }
 
   #mcpServers(): McpServerConfig[] {
+    return [codemodeServer(this.env), ...this.#storedMcpServers()];
+  }
+
+  #storedMcpServers(): McpServerConfig[] {
     return this.ctx.storage.kv.get<McpServerConfig[]>("mcpServers") ?? [];
   }
 
   #bots(): BotSummary[] {
-    return (this.ctx.storage.kv.get<StoredBotSummary[]>("bots") ?? []).map((bot) => ({ ...bot, role: bot.role ?? "" }));
+    return (this.ctx.storage.kv.get<StoredBotSummary[]>("bots") ?? []).map((bot) => ({ ...bot, role: bot.role ?? "", model: claudeModelId(bot.model) }));
   }
 }

@@ -24,7 +24,7 @@ export function GroupAvatars({ memberIds, bots }: { memberIds: string[]; bots: B
   );
 }
 
-export function GroupPane({ group, bots, onError }: { group: GroupSummary; bots: BotSummary[]; onError: (error: unknown) => void }) {
+export function GroupPane({ group, bots, poll, onError }: { group: GroupSummary; bots: BotSummary[]; poll: <T>(key: string, work: () => Promise<T>) => Promise<T | undefined>; onError: (error: unknown) => void }) {
   const mobile = useIsMobile();
   const [view, setView] = useState<GroupView | null>(null);
   const [pending, setPending] = useState<string | null>(null);
@@ -35,12 +35,9 @@ export function GroupPane({ group, bots, onError }: { group: GroupSummary; bots:
   const messageCount = view?.messages.length ?? 0;
 
   const load = useCallback(async () => {
-    try {
-      setView(await api.group(group.id));
-    } catch (error) {
-      onError(error);
-    }
-  }, [group.id, onError]);
+    const result = await poll("group", () => api.group(group.id));
+    if (result !== undefined) setView(result);
+  }, [group.id, poll]);
 
   useEffect(() => {
     void load();

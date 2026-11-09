@@ -28,11 +28,44 @@ Bubbles cross only through messages: `message_bot`, the replies it triggers, and
 | `User` | Durable Object | Bot list with roles, and sidebar summaries |
 | `Bot` | Durable Object, one per Bot | Pi agent loop, role, transcript, memory, mailbox, takeover state, replies owed |
 | `Computer` | Durable Object and container, one per user | Linux desktop, one Chrome with a tab per Bot, terminal, `/workspace` |
-| Models | OpenRouter | Claude models, through `pi-ai` |
+| `ModelContainer` | Durable Object and container, one per Bot, plus one named `shared` for group routing | `pi-claude-bridge` on the Claude Agent SDK and your Claude subscription, starts on a model call and sleeps after 10 idle minutes |
+
+## Model calls
+
+`src/worker/claude.ts` is the Pi provider. Each model turn goes to the Bot's own `ModelContainer`, where `model-container/server.ts` hosts the `pi-claude-bridge` extension and streams Pi's `AssistantMessageEvent`s back as NDJSON.
+
+- `pi-claude-bridge` is installed from npm at an exact version. `server.ts` gives it a minimal Pi extension host: it captures the provider the extension registers and fires the `session_start` and `before_agent_start` events the extension expects.
+- Pi still runs every tool inside the Bot. The bridge serves the tools to Claude Code through its own MCP server and parks the query until the next request delivers the tool result, so one Claude Code query spans the whole tool loop.
+- A Bot's container keeps one Claude Code session per Bot, under `/home/node/sessions/<Bot id>`, and the bridge resumes it so the prompt cache carries across turns. After a sleep or deploy the bridge rebuilds the session from the transcript Pi sends.
+- `ModelContainer` is separate from `Computer` because Bots run arbitrary commands on `Computer`. The token reaches the container only, never `Computer` or the model.
+- The system prompt is Claude Code's own preset with the Bot prompt appended. The bridge rejects a prompt that contains Pi's built-in preamble.
+- Group routing and other one-shot calls (`claudeText`) use the `shared` container with `oneShot` set, which the bridge runs as an isolated query with no session and no cache.
+- The image runs as the `node` user, because Claude Code refuses to run with permissions bypassed as root.
+- `wrangler.jsonc` allows 20 `ModelContainer` instances, one per active Bot.
+- Each Bot stores its own model and effort. A new effort applies from the next turn, and group routing always runs at low effort.
+
+**Limits:**
+- Only the 10 newest images are sent. Older screenshots become a text placeholder.
+- Each container runs 5 turns at once. Later turns wait for a free slot.
+- All Bots share the subscription's rate limits with your own Claude Code use.
+- The subscription is for your own use, so `FLAREBOT_ALLOWED_EMAILS` should list only you.
+- `Bot.#moveOffOpenRouter` and `claudeModelId` move existing Bots off stored OpenRouter model IDs. Both can go once every deployed Bot has woken once.
+
+## Desktop app
+
+`src-tauri/` is a Tauri 2 shell around the same React and Kumo UI. It adds no UI code, so the interface is identical to the web app.
+
+- The window loads the deployed app URL, so `/api`, cookies, sign-in and the live browser view behave as they do in a browser, with no CORS or cookie changes.
+- `bun run tauri:dev` opens a window on the dev server at `http://127.0.0.1:8787`. Start `bun run dev` first.
+- `bun run tauri:build` reads `FLAREBOT_DOMAIN` with `sec`, builds the web app and bundles `Flarebot.app` with that URL. `scripts/tauri.sh` sets it through `TAURI_CONFIG`.
+- The shell has no Rust commands and no capabilities yet. The Mac daemon sidecar, native approval dialogs and the streaming relay to a local Claude are not built.
+- Web Push and the service worker are the browser's. They are not wired to the desktop window.
 
 ## Flows
 
 ### Sending a message
+
+`POST /api/bots/:id/clear` stops the Bot and starts a new context for Main with Pi's `reset`. Memory, the folder, threads and group chats stay.
 
 1. `POST /api/bots/:id/messages` submits to the Bot's Pi conversation and returns 202.
 2. The UI polls `GET /api/bots/:id` every 800 ms while the Bot is busy.
@@ -212,6 +245,7 @@ A Bot has its main chat plus any threads you start. A thread is a new Pi convers
 **Limits:**
 - Only the main chat can `message_bot`, so Bot replies and the mailbox always go to the main chat.
 - Threads share one folder and one Chrome tab, so two threads working at once can clash.
+- A thread can use `message_bot`. The reply comes back to that thread, or to Main if the thread has closed. The receiving Bot always answers from its Main.
 - A closed thread can't be reopened from the UI.
 
 ## Folder repo
@@ -350,6 +384,7 @@ The Details panel lists the servers with a checkbox for this Bot, adds one with 
 | Paste | Local clipboard paste doesn't reach the desktop during takeover |
 | Local image | `linux/amd64`, so it runs under emulation on Apple silicon |
 | Updates | The UI polls instead of using a WebSocket |
+| Poll errors | A failed poll shows no error until that poll has been failing for 15 seconds while the app is visible. The timer restarts when the app returns to the foreground, because phones cancel requests in flight when an app is suspended |
 | Browser | Bots see and control only web pages. Chrome's own UI, its dialogs and other desktop apps aren't reachable by a Bot |
 | Browser speed | Browser actions run one at a time across all Bots, each starting a short `node` process |
 
@@ -408,11 +443,24 @@ The bell in the chat list footer turns push on for that device.
 
 | Infisical secret | Purpose |
 | --- | --- |
-| `OPENROUTER_API_KEY` | Model calls |
+| `CLAUDE_CODE_OAUTH_TOKEN` | Model calls on your Claude subscription, from `claude setup-token` |
+| `CODEMODE_API_KEY` | The built-in `codemode` MCP server, on by default for every Bot until unticked in Details |
 | `BETTER_AUTH_SECRET` | Signs sessions |
 | `FLAREBOT_ALLOWED_EMAILS` | Comma-separated addresses that can sign in |
 | `FLAREBOT_MAIL_FROM` | Sender, on a domain enabled for Cloudflare Email Sending |
 | `FLAREBOT_DOMAIN` | Custom domain, also used for the app URL |
 | `FLAREBOT_CLOUDFLARE_ACCOUNT_ID` | Target account |
+| `LANGFUSE_HOST`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` | Optional. Turns on [Langfuse tracing](#langfuse-tracing) when all three are set |
+
+### Langfuse tracing
+
+`src/worker/langfuse.ts` sends one trace per model turn to Langfuse's OTLP endpoint, from `claude.ts`, after the turn ends. With any of the three secrets missing it does nothing. A failed send is logged as `langfuse_failed` and never affects the turn.
+
+- Every trace is named `flarebot` and tagged `flarebot` plus `bot` or `router`. The Langfuse user is the Bot's name, and the session is the conversation.
+- Failed turns have level `ERROR` and the error as the status message. When Claude's tool input or a container line can't be parsed, the raw text is in the `error_detail` metadata.
+- Traces hold conversation messages, tool arguments and output, so they include any client data in them. Each field is cut to its last 50,000 characters and images are replaced with `[image]`. The Claude token is never sent.
+- Failed turns are also logged to Workers Logs as `model_turn_failed`, with or without Langfuse.
+
+Local dev doesn't load these secrets, so it sends nothing.
 
 **Limit:** `scripts/import-chrome-cookies.ts` and `scripts/install-on-computer.ts` send no session cookie, so they only work against local dev.

@@ -1,0 +1,18 @@
+{
+  "name": "flarebot-model-container",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "0.3.309",
+    "@anthropic-ai/sdk": "0.93.0",
+    "@earendil-works/pi-ai": "1.4.0",
+    "@earendil-works/pi-coding-agent": "1.4.0",
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "pi-claude-bridge": "0.11.0",
+    "tsx": "4.22.4",
+    "zod": "4.6.7"
+  },
+  "overrides": {
+    "@anthropic-ai/claude-agent-sdk": "0.3.309"
+  }
+}

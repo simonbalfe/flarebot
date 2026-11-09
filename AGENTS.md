@@ -17,12 +17,16 @@ Run both checks after every code change. Docker or OrbStack must be running for 
 | --- | --- |
 | `src/worker/index.ts` | API routes and the screen proxy |
 | `src/worker/bot.ts` | `Bot` Durable Object: Pi harness, role, memory, mailbox, takeover, Bot replies |
+| `src/worker/claude.ts` | Pi provider and one-shot text call that send model turns to the Bot's `ModelContainer` and forward the bridge's events |
+| `src/worker/langfuse.ts` | Optional Langfuse trace for each model turn |
+| `src/worker/model-container.ts` | `ModelContainer` Durable Object |
+| `model-container/` | Image and `server.ts` that host the `pi-claude-bridge` extension (exact pin, loaded through `tsx`) behind a minimal Pi extension host. `pi-claude-bridge.d.ts` types the two bridge modules the server imports. Keep its pins in step with the root `package.json`, and run `npm install --package-lock-only --ignore-scripts` there after changing them. Upgrade the bridge by bumping its pin and re-running a text turn and a tool-call turn against the container |
 | `src/worker/tools.ts` | Bot prompt and tools |
 | `src/worker/view.ts` | Pi state to transcript conversion, including cost |
 | `src/worker/user.ts` | `User` Durable Object: Bot and group lists, sidebar summaries |
 | `src/worker/group.ts` | `Group` Durable Object: group transcript and `@` mention routing |
 | `src/worker/mentions.ts` | Matches `@` mentions and plain Bot names in group messages |
-| `src/worker/router.ts` | Model call that picks Bots for a group message with no name |
+| `src/worker/router.ts` | Claude call that picks Bots for a group message with no name |
 | `src/worker/repos.ts` | Each Bot's folder repo in Artifacts: create, clone into the folder, commit, pull, push, with short-lived tokens |
 | `src/worker/pool.ts` | Shared pool of CLIs and Agent Skills: the `toolbox` Artifacts repo cloned to `/workspace/toolbox`, publish, validate and remove |
 | `src/worker/mac.ts` | `Mac` Durable Object: device link, the daemon's WebSocket, request and result routing |
@@ -41,7 +45,8 @@ Run both checks after every code change. Docker or OrbStack must be running for 
 | `src/web/` | React UI |
 | `src/web/styles.css` | Design tokens and Kumo theme overrides |
 | `computer/` | Desktop image, cookie loader, and `browser-tab.mjs` (CDP tab control, sent by the Worker at run time) |
-| `scripts/` | Local dev, deploy, cookie import, and copying files to the computer |
+| `src-tauri/` | Tauri 2 desktop shell around the same web UI: `tauri.conf.json`, a Rust entry point with no commands yet, and icons. Crate and CLI pins are exact |
+| `scripts/` | Local dev, deploy, cookie import, copying files to the computer, and `tauri.sh` (`tauri:dev` and `tauri:build`, which injects the deployed URL) |
 
 ## Rules
 

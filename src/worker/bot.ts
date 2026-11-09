@@ -1,14 +1,15 @@
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
-import { createModels, type Provider } from "@earendil-works/pi-ai/models";
-import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
+import { createModels } from "@earendil-works/pi-ai/models";
 import { type Conversation, type ConversationId, createRegistry, Harness, type SubmissionId, type SubmissionRecord, type Wake } from "@earendil-works/pi-durable";
 import { openDurableObjectSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/cloudflare";
 import { DurableObject } from "cloudflare:workers";
-import { computerName, userName } from "./env";
+import { claudeProvider, claudeProviderId } from "./claude";
+import { claudeModelId, computerName, defaultEffort, type Effort, userName } from "./env";
+import { recordTurns } from "./langfuse";
 import { type CliSummary, type OwnSkill, ownSkillsDir, type PoolKind, type SkillSummary, scanSkills } from "./pool";
 import type { PoolResult } from "./user";
-import type { McpServerSummary } from "./mcp";
+import { codemodeServer, type McpServerSummary, serverSummary } from "./mcp";
 import { type PushMessage, pushBody } from "./push";
 import { cloneState, commitAll, defaultRepoName, errorMessage, pushClone, type RepoResult } from "./repos";
 import { botExtension, type BotProfile, maxBotHops, type Takeover } from "./tools";
@@ -16,8 +17,7 @@ import { botReply, toTranscriptView, type TranscriptView } from "./view";
 
 const context = BACKGROUND_CONTEXT;
 const heartbeatMs = 60_000;
-const provider = "openrouter";
-const maxOutputTokens = 8000;
+const provider = claudeProviderId;
 const takeoverDoneMessage = "I'm done, continue.";
 const unfinishedMessage = "I could not finish that.";
 const maxDeliveryAttempts = 5;
@@ -40,6 +40,13 @@ export interface Envelope {
   hops: number;
   replyTo: string | null;
   groupId: string | null;
+  threadId?: string | null;
+  replyThreadId?: string | null;
+}
+
+interface ReplyTarget {
+  botId: string;
+  threadId: string | null;
 }
 
 export interface MailboxCounts {
@@ -47,7 +54,7 @@ export interface MailboxCounts {
   failed: number;
 }
 
-type StoredProfile = Omit<BotProfile, "role"> & { role?: string };
+type StoredProfile = Omit<BotProfile, "role" | "effort"> & { role?: string; effort?: Effort };
 
 type MailRow = {
   id: string;
@@ -56,17 +63,10 @@ type MailRow = {
   hops: number;
   reply_to: string | null;
   group_id: string | null;
+  thread_id: string | null;
+  reply_thread_id: string | null;
   attempts: number;
 };
-
-function cappedOpenRouter(): Provider {
-  const base = openrouterProvider();
-  return {
-    ...base,
-    getModels: () => base.getModels().map((model) => ({ ...model, maxTokens: Math.min(model.maxTokens, maxOutputTokens) })),
-    getAllModels: undefined,
-  };
-}
 
 export interface ThreadSummary {
   id: string;
@@ -122,15 +122,18 @@ export class Bot extends DurableObject<Env> {
     ctx.storage.sql.exec(
       "CREATE TABLE IF NOT EXISTS flarebot_mailbox (id TEXT PRIMARY KEY, sender_id TEXT NOT NULL, text TEXT NOT NULL, hops INTEGER NOT NULL, reply_to TEXT, group_id TEXT, status TEXT NOT NULL, attempts INTEGER NOT NULL, next_at INTEGER NOT NULL, created_at INTEGER NOT NULL, delivered_at INTEGER, error TEXT)",
     );
+    const mailboxColumns = ctx.storage.sql.exec<{ name: string }>("PRAGMA table_info(flarebot_mailbox)").toArray().map((column) => column.name);
+    for (const column of ["thread_id", "reply_thread_id"]) {
+      if (!mailboxColumns.includes(column)) ctx.storage.sql.exec(`ALTER TABLE flarebot_mailbox ADD COLUMN ${column} TEXT`);
+    }
     void ctx.blockConcurrencyWhile(async () => {
       const fallback = Date.now() + heartbeatMs;
       const alarm = await ctx.storage.getAlarm();
       if (alarm === null || alarm > fallback) await ctx.storage.setAlarm(fallback);
 
-      const credentials = new InMemoryCredentialStore();
-      await credentials.modify(provider, async () => ({ type: "api_key", key: env.OPENROUTER_API_KEY }));
-      const models = createModels({ credentials });
-      models.setProvider(cappedOpenRouter());
+      const models = createModels({ credentials: new InMemoryCredentialStore() });
+      const recordTurn = recordTurns(env, (work) => ctx.waitUntil(work), () => ({ kind: "bot", id: this.#profile().id, name: this.#profile().name }));
+      models.setProvider(claudeProvider({ session: () => ({ container: env.MODELS.getByName(this.#profile().id), id: this.#profile().id }), token: env.CLAUDE_CODE_OAUTH_TOKEN, recordTurn }, () => this.#profile().effort));
 
       const registry = createRegistry();
       registry.install(
@@ -153,6 +156,7 @@ export class Bot extends DurableObject<Env> {
           },
           botHops: () => ctx.storage.kv.get<number>("botHops") ?? 0,
           isRoot: (conversationId) => conversationId === this.#root.id,
+          owesReplyTo: (botId) => this.#replyTo().some((target) => target.botId === botId),
           threadOf: (conversationId) => {
             const thread = this.#storedThreads().find((candidate) => candidate.conversationId === conversationId);
             return thread === undefined ? null : summaryOf(thread);
@@ -172,6 +176,7 @@ export class Bot extends DurableObject<Env> {
         context,
       );
       this.#root = await this.#harness.root(context);
+      await this.#moveOffOpenRouter();
       await this.#arm(this.#harness.wake());
       this.#harness.resume();
       this.#queueGroupSettle();
@@ -205,13 +210,15 @@ export class Bot extends DurableObject<Env> {
   enqueue(envelope: Envelope): void {
     const now = Date.now();
     this.ctx.storage.sql.exec(
-      "INSERT OR IGNORE INTO flarebot_mailbox (id, sender_id, text, hops, reply_to, group_id, status, attempts, next_at, created_at) VALUES (?, ?, ?, ?, ?, ?, 'queued', 0, ?, ?)",
+      "INSERT OR IGNORE INTO flarebot_mailbox (id, sender_id, text, hops, reply_to, group_id, thread_id, reply_thread_id, status, attempts, next_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', 0, ?, ?)",
       envelope.id,
       envelope.senderId,
       envelope.text,
       envelope.hops,
       envelope.replyTo,
       envelope.groupId,
+      envelope.threadId ?? null,
+      envelope.replyThreadId ?? null,
       now,
       now,
     );
@@ -236,6 +243,7 @@ export class Bot extends DurableObject<Env> {
     if (thread === undefined) throw new Error("Thread not found");
     const conversation = await this.#threadConversation(thread);
     this.ctx.storage.kv.delete("takeover");
+    this.ctx.storage.kv.put("botHops", 0);
     await this.#arm({ ...this.#harness.wake(), active: true });
     const submission = await conversation.submit({ type: "input", content: text, requestId: crypto.randomUUID(), whenBusy: "steer" }, context);
     const title = thread.title === "" ? text.replace(/\s+/g, " ").trim().slice(0, threadTitleChars) : thread.title;
@@ -345,6 +353,16 @@ export class Bot extends DurableObject<Env> {
     await this.#report(false);
   }
 
+  async clearMain(): Promise<void> {
+    this.ctx.storage.kv.delete("replyTo");
+    this.ctx.storage.kv.delete("lastSubmission");
+    this.ctx.storage.kv.delete("takeover");
+    this.ctx.storage.kv.put("botHops", 0);
+    await this.#root.abort(context);
+    await this.#root.reset(undefined, context);
+    await this.#report(false);
+  }
+
   setRole(role: string): void {
     this.ctx.storage.kv.put("profile", { ...this.#profile(), role });
   }
@@ -363,8 +381,13 @@ export class Bot extends DurableObject<Env> {
     await this.ctx.storage.deleteAll();
   }
 
+  async #moveOffOpenRouter(): Promise<void> {
+    const model = this.ctx.storage.kv.get<StoredProfile>("profile")?.model;
+    if (model === undefined || model === claudeModelId(model)) return;
+    await this.setModel(claudeModelId(model));
+  }
+
   async setModel(model: string): Promise<void> {
-    this.ctx.storage.kv.put("profile", { ...this.#profile(), model });
     const change = { model: { provider, modelId: model } };
     await this.#root.configure(change, context);
     for (const groupId of Object.keys(this.#conversationIds())) {
@@ -374,6 +397,11 @@ export class Bot extends DurableObject<Env> {
     for (const thread of this.#storedThreads().filter((candidate) => !candidate.closed)) {
       await (await this.#threadConversation(thread)).configure(change, context);
     }
+    this.ctx.storage.kv.put("profile", { ...this.#profile(), model });
+  }
+
+  setEffort(effort: Effort): void {
+    this.ctx.storage.kv.put("profile", { ...this.#profile(), effort });
   }
 
   memory(): string[] {
@@ -425,7 +453,7 @@ export class Bot extends DurableObject<Env> {
   }
 
   #mcpServers(): McpServerSummary[] {
-    return this.ctx.storage.kv.get<McpServerSummary[]>("mcpServers") ?? [];
+    return this.ctx.storage.kv.get<McpServerSummary[]>("mcpServers") ?? [serverSummary(codemodeServer(this.env))];
   }
 
   #workspace(): Workspace {
@@ -510,7 +538,7 @@ export class Bot extends DurableObject<Env> {
   #profile(): BotProfile {
     const profile = this.ctx.storage.kv.get<StoredProfile>("profile");
     if (profile === undefined) throw new Error("Bot has no profile");
-    return { ...profile, role: profile.role ?? "" };
+    return { ...profile, role: profile.role ?? "", effort: profile.effort ?? defaultEffort };
   }
 
   #mailboxCounts(): MailboxCounts {
@@ -528,7 +556,7 @@ export class Bot extends DurableObject<Env> {
 
   async #drain(): Promise<void> {
     const due = this.ctx.storage.sql
-      .exec<MailRow>("SELECT id, sender_id, text, hops, reply_to, group_id, attempts FROM flarebot_mailbox WHERE status = 'queued' AND next_at <= ? ORDER BY created_at, rowid", Date.now())
+      .exec<MailRow>("SELECT id, sender_id, text, hops, reply_to, group_id, thread_id, reply_thread_id, attempts FROM flarebot_mailbox WHERE status = 'queued' AND next_at <= ? ORDER BY created_at, rowid", Date.now())
       .toArray();
     let delivered = 0;
     for (const row of due) {
@@ -550,8 +578,14 @@ export class Bot extends DurableObject<Env> {
       return;
     }
     this.ctx.storage.kv.put("botHops", row.hops);
-    if (row.reply_to !== null && !this.#replyTo().includes(row.reply_to)) this.ctx.storage.kv.put("replyTo", [...this.#replyTo(), row.reply_to]);
+    if (row.reply_to !== null) this.#oweReply({ botId: row.reply_to, threadId: row.reply_thread_id });
     await this.#arm({ ...this.#harness.wake(), active: true });
+    const thread = row.thread_id === null ? undefined : this.#openThread(row.thread_id);
+    if (thread !== undefined) {
+      const threadSubmission = await (await this.#threadConversation(thread)).submit({ type: "input", content: row.text, requestId: row.id, whenBusy: "followUp" }, context);
+      this.#updateThread(thread.id, { lastSubmission: threadSubmission.id });
+      return;
+    }
     const submission = await this.#root.submit({ type: "input", content: row.text, requestId: row.id, whenBusy: "followUp" }, context);
     this.ctx.storage.kv.put("lastSubmission", submission.id);
   }
@@ -575,6 +609,7 @@ export class Bot extends DurableObject<Env> {
         hops: maxBotHops,
         replyTo: null,
         groupId: null,
+        threadId: row.reply_thread_id,
       });
     } catch (notifyError) {
       console.error(String(notifyError));
@@ -599,8 +634,14 @@ export class Bot extends DurableObject<Env> {
     this.#wasActive = wake.active;
   }
 
-  #replyTo(): string[] {
-    return this.ctx.storage.kv.get<string[]>("replyTo") ?? [];
+  #replyTo(): ReplyTarget[] {
+    const stored = this.ctx.storage.kv.get<(ReplyTarget | string)[]>("replyTo") ?? [];
+    return stored.map((target) => (typeof target === "string" ? { botId: target, threadId: null } : target));
+  }
+
+  #oweReply(target: ReplyTarget): void {
+    if (this.#replyTo().some((owed) => owed.botId === target.botId && owed.threadId === target.threadId)) return;
+    this.ctx.storage.kv.put("replyTo", [...this.#replyTo(), target]);
   }
 
   #conversationIds(): Record<string, ConversationId> {
@@ -746,17 +787,18 @@ export class Bot extends DurableObject<Env> {
     if (recipients.length === 0) return;
     this.ctx.storage.kv.delete("replyTo");
     const view = await this.view();
-    const answer = view.items.at(-1)?.kind === "cost" ? view.items.findLast((item) => item.kind === "assistant") : undefined;
+    const turnStart = view.items.findLastIndex((item) => item.kind === "user" || item.kind === "peer");
+    const answer = view.items.slice(turnStart + 1).findLast((item) => item.kind === "assistant");
     const text = answer?.kind === "assistant" ? answer.text : (view.error ?? unfinishedMessage);
     const hops = (this.ctx.storage.kv.get<number>("botHops") ?? 0) + 1;
     const profile = this.#profile();
-    const undelivered: string[] = [];
-    for (const id of new Set(recipients)) {
+    const undelivered: ReplyTarget[] = [];
+    for (const target of recipients) {
       try {
-        await this.env.BOT.getByName(id).enqueue({ id: crypto.randomUUID(), senderId: profile.id, text: botReply(profile.name, text), hops, replyTo: null, groupId: null });
+        await this.env.BOT.getByName(target.botId).enqueue({ id: crypto.randomUUID(), senderId: profile.id, text: botReply(profile.name, text), hops, replyTo: null, groupId: null, threadId: target.threadId });
       } catch (error) {
         console.error(String(error));
-        undelivered.push(id);
+        undelivered.push(target);
       }
     }
     if (undelivered.length > 0) this.ctx.storage.kv.put("replyTo", [...this.#replyTo(), ...undelivered]);

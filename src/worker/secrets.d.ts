@@ -1,8 +1,12 @@
 interface Env {
-  OPENROUTER_API_KEY: string;
+  CLAUDE_CODE_OAUTH_TOKEN: string;
+  CODEMODE_API_KEY: string;
   BETTER_AUTH_SECRET: string;
   FLAREBOT_APP_URL: string;
   FLAREBOT_ALLOWED_EMAILS: string;
   FLAREBOT_MAIL_FROM: string;
   FLAREBOT_LOCAL_DEV?: string;
+  LANGFUSE_HOST?: string;
+  LANGFUSE_PUBLIC_KEY?: string;
+  LANGFUSE_SECRET_KEY?: string;
 }
