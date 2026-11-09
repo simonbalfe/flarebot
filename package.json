@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "scripts/dev.sh",
+    "claude:local": "scripts/claude-local.sh",
     "build": "vite build",
     "types": "wrangler types",
     "tauri:dev": "scripts/tauri.sh dev",

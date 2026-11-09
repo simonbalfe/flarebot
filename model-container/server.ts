@@ -7,16 +7,17 @@ import extension, { type HostContext, type HostEvent, type HostHandler, type Hos
 import { toBridgeContext } from "pi-claude-bridge/src/transcript.ts";
 import { z } from "zod";
 
-const port = 8080;
+const port = Number(process.env.PORT ?? 8080);
+const host = process.env.HOST ?? "0.0.0.0";
 const turnPath = "/claude/turn";
 const maxConcurrentTurns = 5;
-const sessionsRoot = join(homedir(), "sessions");
+const sessionsRoot = process.env.SESSIONS_DIR ?? join(homedir(), "sessions");
 
 const turnRequestSchema = z.object({
   model: z.string(),
   effort: z.enum(["low", "medium", "high", "xhigh", "max"]),
   messages: z.array(z.custom<Message>((value) => typeof value === "object" && value !== null && "role" in value)),
-  token: z.string(),
+  token: z.string().optional(),
   sessionId: z.string().optional(),
   oneShot: z.boolean().optional(),
 });
@@ -89,7 +90,7 @@ async function runTurn(request: TurnRequest, signal: AbortSignal, send: (event: 
   const options: StreamOptions = {
     signal,
     reasoning: request.effort,
-    env: { CLAUDE_CODE_OAUTH_TOKEN: request.token },
+    env: request.token ? { CLAUDE_CODE_OAUTH_TOKEN: request.token } : {},
     ...(request.oneShot ? { cacheRetention: "none" as const } : {}),
   };
 
@@ -138,4 +139,4 @@ createServer(async (request, response) => {
     releaseTurnSlot();
   }
   response.end();
-}).listen(port);
+}).listen(port, host);

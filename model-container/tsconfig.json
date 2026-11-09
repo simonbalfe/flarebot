@@ -11,7 +11,11 @@
     "allowImportingTsExtensions": true,
     "skipLibCheck": true,
     "noEmit": true,
-    "types": ["bun"]
+    "types": ["bun"],
+    "paths": {
+      "pi-claude-bridge/src/index.ts": ["./types/bridge-extension.d.ts"],
+      "pi-claude-bridge/src/transcript.ts": ["./types/bridge-transcript.d.ts"]
+    }
   },
-  "include": ["server.ts", "pi-claude-bridge.d.ts"]
+  "include": ["server.ts"]
 }

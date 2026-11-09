@@ -4,7 +4,7 @@ import { createModels } from "@earendil-works/pi-ai/models";
 import { type Conversation, type ConversationId, createRegistry, Harness, type SubmissionId, type SubmissionRecord, type Wake } from "@earendil-works/pi-durable";
 import { openDurableObjectSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/cloudflare";
 import { DurableObject } from "cloudflare:workers";
-import { claudeProvider, claudeProviderId } from "./claude";
+import { claudeProvider, claudeProviderId, claudeToken, claudeTransport } from "./claude";
 import { claudeModelId, computerName, defaultEffort, type Effort, userName } from "./env";
 import { recordTurns } from "./langfuse";
 import { type CliSummary, type OwnSkill, ownSkillsDir, type PoolKind, type SkillSummary, scanSkills } from "./pool";
@@ -133,7 +133,7 @@ export class Bot extends DurableObject<Env> {
 
       const models = createModels({ credentials: new InMemoryCredentialStore() });
       const recordTurn = recordTurns(env, (work) => ctx.waitUntil(work), () => ({ kind: "bot", id: this.#profile().id, name: this.#profile().name }));
-      models.setProvider(claudeProvider({ session: () => ({ container: env.MODELS.getByName(this.#profile().id), id: this.#profile().id }), token: env.CLAUDE_CODE_OAUTH_TOKEN, recordTurn }, () => this.#profile().effort));
+      models.setProvider(claudeProvider({ session: () => ({ send: claudeTransport(env, this.#profile().id), id: this.#profile().id }), token: claudeToken(env), recordTurn }, () => this.#profile().effort));
 
       const registry = createRegistry();
       registry.install(

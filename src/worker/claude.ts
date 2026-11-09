@@ -19,14 +19,24 @@ const turnEventSchema = z.union([
 type TurnEvent = z.infer<typeof turnEventSchema>;
 
 export interface ClaudeSession {
-  container: Fetcher;
+  send(init: RequestInit): Promise<Response>;
   id: string | undefined;
 }
 
 export interface ClaudeConnection {
   session(): ClaudeSession;
-  token: string;
+  token: string | undefined;
   recordTurn: RecordTurn;
+}
+
+export function claudeTransport(env: Env, containerName: string): ClaudeSession["send"] {
+  const localUrl = env.CLAUDE_LOCAL_URL;
+  if (localUrl) return (init) => fetch(`${localUrl}/claude/turn`, init);
+  return (init) => env.MODELS.getByName(containerName).fetch("http://container/claude/turn", init);
+}
+
+export function claudeToken(env: Env): string | undefined {
+  return env.CLAUDE_LOCAL_URL ? undefined : env.CLAUDE_CODE_OAUTH_TOKEN;
 }
 
 class ModelTurnError extends Error {
@@ -65,7 +75,7 @@ interface TurnRequest {
 
 async function openTurn(request: TurnRequest): Promise<ReadableStream<Uint8Array>> {
   const session = request.connection.session();
-  const response = await session.container.fetch("http://container/claude/turn", {
+  const response = await session.send({
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({

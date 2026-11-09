@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import { claudeToken, claudeTransport } from "./claude";
 import { modelContainerName, userName } from "./env";
 import { recordTurns } from "./langfuse";
 import { atMentioned, namedInText } from "./mentions";
@@ -106,7 +107,7 @@ export class Group extends DurableObject<Env> {
     try {
       const members = await Promise.all(bots.map(async (bot) => ({ name: bot.name, role: bot.role, memory: await this.env.BOT.getByName(bot.id).memory() })));
       const recordTurn = recordTurns(this.env, (work) => this.ctx.waitUntil(work), () => ({ kind: "router", id: this.#profile().id, name: this.#profile().name }));
-      const connection = { session: () => ({ container: this.env.MODELS.getByName(modelContainerName), id: undefined }), token: this.env.CLAUDE_CODE_OAUTH_TOKEN, recordTurn };
+      const connection = { session: () => ({ send: claudeTransport(this.env, modelContainerName), id: undefined }), token: claudeToken(this.env), recordTurn };
       const names = await chooseBots({ connection, model: this.env.ROUTER_MODEL, members, recent: this.#recentContext(bots), message: text });
       const chosen = bots.filter((bot) => names.includes(bot.name));
       return chosen.length > 0 ? chosen : this.#defaultTarget(bots);

@@ -42,6 +42,9 @@ Bubbles cross only through messages: `message_bot`, the replies it triggers, and
 - Group routing and other one-shot calls (`claudeText`) use the `shared` container with `oneShot` set, which the bridge runs as an isolated query with no session and no cache.
 - The image runs as the `node` user, because Claude Code refuses to run with permissions bypassed as root.
 - `wrangler.jsonc` allows 20 `ModelContainer` instances, one per active Bot.
+- **Local Claude (dev only):** with `CLAUDE_LOCAL_URL` set, `claudeTransport` in `claude.ts` posts turns to that URL instead of a `ModelContainer`, and `claudeToken` sends no token. `bun run claude:local` runs the same `server.ts` natively on the Mac at `http://127.0.0.1:8788`, so Claude Code uses the Mac's own `claude auth login` session. `scripts/dev.sh` sets `CLAUDE_LOCAL_URL` to that address by default and refuses to start if it isn't up. Run `CLAUDE_LOCAL_URL= bun run dev` to use the Docker container and the `sec` token instead.
+- The local run keeps its sessions in `~/.flarebot-local/sessions` and the bridge state in `~/.flarebot-local/pi-agent`. Claude Code also writes its own session files under `~/.claude`, so these Bot sessions appear in your Claude Code history.
+- The deployed Worker can't reach your Mac, so production never sets `CLAUDE_LOCAL_URL` and keeps using containers with the Worker secret.
 - Each Bot stores its own model and effort. A new effort applies from the next turn, and group routing always runs at low effort.
 
 **Limits:**

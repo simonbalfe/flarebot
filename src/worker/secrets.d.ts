@@ -1,5 +1,6 @@
 interface Env {
-  CLAUDE_CODE_OAUTH_TOKEN: string;
+  CLAUDE_CODE_OAUTH_TOKEN?: string;
+  CLAUDE_LOCAL_URL?: string;
   CODEMODE_API_KEY: string;
   BETTER_AUTH_SECRET: string;
   FLAREBOT_APP_URL: string;

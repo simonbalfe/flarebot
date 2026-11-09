@@ -20,7 +20,7 @@ Run both checks after every code change. Docker or OrbStack must be running for 
 | `src/worker/claude.ts` | Pi provider and one-shot text call that send model turns to the Bot's `ModelContainer` and forward the bridge's events |
 | `src/worker/langfuse.ts` | Optional Langfuse trace for each model turn |
 | `src/worker/model-container.ts` | `ModelContainer` Durable Object |
-| `model-container/` | Image and `server.ts` that host the `pi-claude-bridge` extension (exact pin, loaded through `tsx`) behind a minimal Pi extension host. `pi-claude-bridge.d.ts` types the two bridge modules the server imports. Keep its pins in step with the root `package.json`, and run `npm install --package-lock-only --ignore-scripts` there after changing them. Upgrade the bridge by bumping its pin and re-running a text turn and a tool-call turn against the container |
+| `model-container/` | Image and `server.ts` that host the `pi-claude-bridge` extension (exact pin, loaded through `tsx`) behind a minimal Pi extension host. `tsconfig.json` maps the two bridge imports to the type-only files in `types/`, so the bridge's own sources are never type-checked. `bun run claude:local` runs the same server on the Mac, and `CLAUDE_LOCAL_URL` makes the local Worker use it. Keep its pins in step with the root `package.json`, and run `npm install --package-lock-only --ignore-scripts` there after changing them. Upgrade the bridge by bumping its pin and re-running a text turn and a tool-call turn against the container |
 | `src/worker/tools.ts` | Bot prompt and tools |
 | `src/worker/view.ts` | Pi state to transcript conversion, including cost |
 | `src/worker/user.ts` | `User` Durable Object: Bot and group lists, sidebar summaries |
