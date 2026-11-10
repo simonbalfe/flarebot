@@ -22,6 +22,19 @@ interface Request {
   action: MacAction;
 }
 
+interface ModelTurn {
+  type: "model-turn";
+  id: string;
+  body: string;
+}
+
+interface ModelCancel {
+  type: "model-cancel";
+  id: string;
+}
+
+type Incoming = Request | ModelTurn | ModelCancel;
+
 interface Config {
   url: string;
   token: string | null;
@@ -46,6 +59,19 @@ const linkPollMs = 2_000;
 const configWatchMs = 2_000;
 const blockedCommand = /(^|[\s;&|(])sudo\b/;
 const unlinkedReasons = ["Unpaired", "Linked again"];
+const homeDir = join(homedir(), ".flarebot-local");
+const modelServerDir = join(homeDir, "model-server");
+const modelServerFiles = ["server.ts", "package.json", "package-lock.json"];
+const modelServerPort = 48789;
+const modelServerStartMs = 30_000;
+const modelServerRestartMs = 5_000;
+const installTimeoutMs = 600_000;
+const claudeCheckMs = 60_000;
+const claudeStatusTimeoutMs = 15_000;
+const healthTimeoutMs = 2_000;
+const healthPollMs = 500;
+const turnChunkChars = 200_000;
+const modelServerSecrets = ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"];
 
 const usage = `Usage:
   flarebot-local run [--url <app url>]
@@ -59,6 +85,7 @@ const usage = `Usage:
 const { positionals, values } = parseArgs({ allowPositionals: true, options: { url: { type: "string" } } });
 
 let activeSocket: WebSocket | null = null;
+const modelTurns = new Map<string, AbortController>();
 
 const [command, argument] = positionals;
 switch (command) {
@@ -146,8 +173,120 @@ async function runDaemon(): Promise<void> {
   saveConfig(config);
   config = await ensureFolder(config);
   config = await ensureLinked(config);
-  watchFile(configPath, { interval: configWatchMs }, () => sendHello(loadConfig()));
+  watchFile(configPath, { interval: configWatchMs }, () => void sendHello(loadConfig()));
+  setInterval(() => void sendHello(loadConfig()), claudeCheckMs);
+  process.on("SIGTERM", () => process.exit(0));
+  process.on("SIGINT", () => process.exit(0));
+  void startModelServer(config);
   connect(config, 0);
+}
+
+async function modelServerHealthy(): Promise<boolean> {
+  try {
+    const response = await fetch(`http://127.0.0.1:${modelServerPort}/health`, { signal: AbortSignal.timeout(healthTimeoutMs) });
+    return response.ok && (await response.text()) === "ok";
+  } catch {
+    return false;
+  }
+}
+
+async function claudeReady(): Promise<boolean> {
+  if (!(await modelServerHealthy())) return false;
+  const status = await runProcess("/bin/zsh", ["-l", "-c", "claude auth status"], undefined, claudeStatusTimeoutMs);
+  return status.ok && /"loggedIn":\s*true/.test(status.output);
+}
+
+function succeeded(result: MacResult): boolean {
+  return result.ok && result.output.startsWith("exit code: 0");
+}
+
+async function installModelServer(appUrl: string): Promise<void> {
+  mkdirSync(modelServerDir, { recursive: true });
+  let changed = !existsSync(join(modelServerDir, "node_modules"));
+  for (const file of modelServerFiles) {
+    const response = await fetch(`${appUrl}/mac/model-server/${file}`);
+    if (!response.ok) throw new Error(`Could not download ${file}: HTTP ${response.status}`);
+    const content = await response.text();
+    const path = join(modelServerDir, file);
+    if (existsSync(path) && readFileSync(path, "utf8") === content) continue;
+    writeFileSync(path, content);
+    if (file !== "server.ts") changed = true;
+  }
+  if (!changed) return;
+  await notify("Installing the Claude relay for flarebot. This takes a minute.");
+  const install = await runProcess("/bin/zsh", ["-l", "-c", "npm ci --ignore-scripts --no-audit --no-fund"], modelServerDir, installTimeoutMs);
+  if (!succeeded(install)) throw new Error(install.ok ? install.output : install.error);
+}
+
+function spawnModelServer(): void {
+  const env: Record<string, string | undefined> = { ...process.env, PORT: String(modelServerPort), HOST: "127.0.0.1", SESSIONS_DIR: join(homeDir, "sessions"), PI_CODING_AGENT_DIR: join(homeDir, "pi-agent") };
+  for (const name of modelServerSecrets) delete env[name];
+  const child = spawn("/bin/zsh", ["-l", "-c", "exec node --import tsx server.ts"], { cwd: modelServerDir, env, stdio: ["ignore", "inherit", "inherit"] });
+  process.on("exit", () => child.kill());
+  child.on("exit", (code, signal) => {
+    console.log(`The Claude server stopped (${code ?? signal}). Restarting in ${modelServerRestartMs / 1000}s.`);
+    setTimeout(spawnModelServer, modelServerRestartMs);
+  });
+}
+
+async function waitForModelServer(): Promise<boolean> {
+  const deadline = Date.now() + modelServerStartMs;
+  while (Date.now() < deadline) {
+    if (await modelServerHealthy()) return true;
+    await Bun.sleep(healthPollMs);
+  }
+  return false;
+}
+
+async function startModelServer(config: Config): Promise<void> {
+  try {
+    await installModelServer(config.url);
+    if (!(await modelServerHealthy())) spawnModelServer();
+    if (!(await waitForModelServer())) throw new Error(`The Claude server did not start on port ${modelServerPort}. Another program may be using it.`);
+    console.log("The Claude server is running.");
+    await sendHello(loadConfig());
+  } catch (error) {
+    console.log(`The Claude relay is unavailable: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+function splitTurnText(text: string): string[] {
+  const parts: string[] = [];
+  let start = 0;
+  while (start < text.length) {
+    let end = Math.min(start + turnChunkChars, text.length);
+    const last = text.charCodeAt(end - 1);
+    if (end < text.length && last >= 0xd800 && last <= 0xdbff) end -= 1;
+    parts.push(text.slice(start, end));
+    start = end;
+  }
+  return parts;
+}
+
+async function relayModelTurn(socket: WebSocket, turn: ModelTurn): Promise<void> {
+  const controller = new AbortController();
+  modelTurns.set(turn.id, controller);
+  const send = (message: object): void => {
+    if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
+  };
+  try {
+    const response = await fetch(`http://127.0.0.1:${modelServerPort}/claude/turn`, { method: "POST", headers: { "content-type": "application/json" }, body: turn.body, signal: controller.signal });
+    if (!response.ok || !response.body) throw new Error(`The Claude server answered ${response.status}`);
+    const decoder = new TextDecoder();
+    let buffer = "";
+    for await (const chunk of response.body) {
+      buffer += decoder.decode(chunk, { stream: true });
+      const end = buffer.lastIndexOf("\n");
+      if (end < 0) continue;
+      for (const part of splitTurnText(buffer.slice(0, end + 1))) send({ type: "model-chunk", id: turn.id, data: part });
+      buffer = buffer.slice(end + 1);
+    }
+    send({ type: "model-end", id: turn.id });
+  } catch (error) {
+    if (!controller.signal.aborted) send({ type: "model-end", id: turn.id, error: error instanceof Error ? error.message : String(error) });
+  } finally {
+    modelTurns.delete(turn.id);
+  }
 }
 
 function acquireLock(): boolean {
@@ -246,9 +385,12 @@ async function unlinked(reason: string): Promise<never> {
   process.exit(0);
 }
 
-function sendHello(config: Config): void {
-  if (activeSocket?.readyState !== WebSocket.OPEN) return;
-  activeSocket.send(JSON.stringify({ type: "hello", name: config.name, roots: config.roots }));
+async function sendHello(config: Config): Promise<void> {
+  const socket = activeSocket;
+  if (socket?.readyState !== WebSocket.OPEN) return;
+  const claude = await claudeReady();
+  if (socket.readyState !== WebSocket.OPEN) return;
+  socket.send(JSON.stringify({ type: "hello", name: config.name, roots: config.roots, claude }));
 }
 
 function connect(config: Config, attempt: number): void {
@@ -261,12 +403,20 @@ function connect(config: Config, attempt: number): void {
   socket.addEventListener("open", () => {
     opened = true;
     console.log(`Connected to ${config.url} with ${config.roots.length} allowed folders.`);
-    sendHello(config);
+    void sendHello(config);
   });
 
   socket.addEventListener("message", (event) => {
-    const request = parseRequest(event.data);
+    const request = parseIncoming(event.data);
     if (request === null) return;
+    if (request.type === "model-turn") {
+      void relayModelTurn(socket, request);
+      return;
+    }
+    if (request.type === "model-cancel") {
+      modelTurns.get(request.id)?.abort();
+      return;
+    }
     queue = queue.then(async () => {
       const result = await handle(loadConfig(), request).catch((error: unknown): MacResult => ({ ok: false, error: error instanceof Error ? error.message : String(error) }));
       console.log(`${new Date().toISOString()} ${request.bot.name} ${request.action.type}: ${result.ok ? "done" : result.error}`);
@@ -276,6 +426,7 @@ function connect(config: Config, attempt: number): void {
 
   socket.addEventListener("close", async (event) => {
     if (activeSocket === socket) activeSocket = null;
+    for (const turn of modelTurns.values()) turn.abort();
     if (unlinkedReasons.includes(event.reason)) await unlinked(event.reason);
     if (!opened && (await tokenState(loadConfig())) === "rejected") await unlinked("the link was removed");
     const next = opened ? 0 : attempt + 1;
@@ -308,11 +459,11 @@ function osascript(body: string[], args: string[]): Promise<string> {
   });
 }
 
-function parseRequest(data: unknown): Request | null {
+function parseIncoming(data: unknown): Incoming | null {
   if (typeof data !== "string") return null;
   const parsed: unknown = JSON.parse(data);
-  if (typeof parsed !== "object" || parsed === null || !("type" in parsed) || parsed.type !== "request") return null;
-  return parsed as Request;
+  if (typeof parsed !== "object" || parsed === null || !("type" in parsed)) return null;
+  return parsed.type === "request" || parsed.type === "model-turn" || parsed.type === "model-cancel" ? (parsed as Incoming) : null;
 }
 
 async function handle(config: Config, request: Request): Promise<MacResult> {
@@ -420,9 +571,9 @@ function runCommand(command: string, cwd: string): Promise<MacResult> {
   return runProcess("/bin/zsh", ["-l", "-c", command], cwd);
 }
 
-function runProcess(file: string, args: string[], cwd: string | undefined): Promise<MacResult> {
+function runProcess(file: string, args: string[], cwd: string | undefined, timeoutMs = commandTimeoutMs): Promise<MacResult> {
   return new Promise((resolveResult) => {
-    const child = spawn(file, args, { cwd, timeout: commandTimeoutMs, killSignal: "SIGKILL" });
+    const child = spawn(file, args, { cwd, timeout: timeoutMs, killSignal: "SIGKILL" });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (chunk: Buffer) => {

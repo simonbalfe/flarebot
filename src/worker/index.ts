@@ -3,6 +3,9 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import { createAuth, requireSession } from "./auth";
 import daemonSource from "../../scripts/flarebot-local.ts?raw";
+import modelServerLock from "../../model-container/package-lock.json?raw";
+import modelServerPackage from "../../model-container/package.json?raw";
+import modelServerSource from "../../model-container/server.ts?raw";
 import { macInstallScript } from "./mac-install";
 import { cliNamePattern } from "./pool";
 import { pushSubscriptionSchema } from "./push";
@@ -71,6 +74,13 @@ app.on(["GET", "POST"], "/api/auth/*", (c) => createAuth(c.env).handler(c.req.ra
 app.get("/mac/install.sh", (c) => c.body(macInstallScript(new URL(c.req.url).origin), 200, { "content-type": "text/x-shellscript; charset=utf-8", "cache-control": "no-store" }));
 
 app.get("/mac/flarebot-local.ts", (c) => c.body(daemonSource, 200, { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" }));
+
+const modelServerFiles: Record<string, string> = { "server.ts": modelServerSource, "package.json": modelServerPackage, "package-lock.json": modelServerLock };
+
+app.get("/mac/model-server/:file", (c) => {
+  const source = modelServerFiles[c.req.param("file")];
+  return source === undefined ? c.body(null, 404) : c.body(source, 200, { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" });
+});
 
 app.post("/api/mac/link", async (c) => {
   const body = macLinkBody.parse(await c.req.json());

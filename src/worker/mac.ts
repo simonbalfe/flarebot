@@ -13,6 +13,7 @@ export type MacResult = { ok: true; output: string } | { ok: false; error: strin
 export interface MacStatus {
   paired: boolean;
   connected: boolean;
+  claude: boolean;
   name: string | null;
   roots: string[];
   pendingLink: { userCode: string; name: string } | null;
@@ -39,13 +40,21 @@ const codeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const codeLength = 8;
 
 const incomingSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("hello"), name: z.string().max(100), roots: z.array(z.string().max(1000)).max(50) }),
+  z.object({ type: z.literal("hello"), name: z.string().max(100), roots: z.array(z.string().max(1000)).max(50), claude: z.boolean().default(false) }),
   z.object({
     type: z.literal("result"),
     id: z.string(),
     result: z.discriminatedUnion("ok", [z.object({ ok: z.literal(true), output: z.string() }), z.object({ ok: z.literal(false), error: z.string() })]),
   }),
+  z.object({ type: z.literal("model-chunk"), id: z.string(), data: z.string() }),
+  z.object({ type: z.literal("model-end"), id: z.string(), error: z.string().optional() }),
 ]);
+
+const encoder = new TextEncoder();
+
+function failureLine(message: string): Uint8Array {
+  return encoder.encode(`\n${JSON.stringify({ type: "failure", message })}\n`);
+}
 
 async function sha256(value: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
@@ -63,6 +72,7 @@ function randomToken(): string {
 
 export class Mac extends DurableObject<Env> {
   #pending = new Map<string, (result: MacResult) => void>();
+  #turns = new Map<string, ReadableStreamDefaultController<Uint8Array>>();
 
   status(): MacStatus {
     const device = this.#device();
@@ -70,6 +80,7 @@ export class Mac extends DurableObject<Env> {
     return {
       paired: device !== null,
       connected: this.ctx.getWebSockets().length > 0,
+      claude: this.claudeReady(),
       name: device?.name ?? null,
       roots: this.ctx.storage.kv.get<string[]>("roots") ?? [],
       pendingLink: link === null || link.approved ? null : { userCode: link.userCode, name: link.name },
@@ -112,6 +123,27 @@ export class Mac extends DurableObject<Env> {
     this.ctx.storage.kv.delete("device");
     this.ctx.storage.kv.delete("link");
     this.ctx.storage.kv.delete("roots");
+    this.ctx.storage.kv.delete("claude");
+  }
+
+  claudeReady(): boolean {
+    return this.ctx.getWebSockets().length > 0 && this.ctx.storage.kv.get<boolean>("claude") === true;
+  }
+
+  modelTurn(body: string): ReadableStream<Uint8Array> | null {
+    const socket = this.ctx.getWebSockets()[0];
+    if (socket === undefined || !this.claudeReady()) return null;
+    const id = crypto.randomUUID();
+    return new ReadableStream<Uint8Array>({
+      start: (controller) => {
+        this.#turns.set(id, controller);
+        socket.send(JSON.stringify({ type: "model-turn", id, body }));
+      },
+      cancel: () => {
+        if (!this.#turns.delete(id) || socket.readyState !== WebSocket.OPEN) return;
+        socket.send(JSON.stringify({ type: "model-cancel", id }));
+      },
+    });
   }
 
   override async fetch(request: Request): Promise<Response> {
@@ -126,12 +158,31 @@ export class Mac extends DurableObject<Env> {
 
   override webSocketMessage(_socket: WebSocket, message: string | ArrayBuffer): void {
     if (typeof message !== "string") return;
-    const parsed = incomingSchema.safeParse(JSON.parse(message));
+    let json: unknown;
+    try {
+      json = JSON.parse(message);
+    } catch {
+      return;
+    }
+    const parsed = incomingSchema.safeParse(json);
     if (!parsed.success) return;
     if (parsed.data.type === "hello") {
       this.ctx.storage.kv.put("roots", parsed.data.roots);
+      this.ctx.storage.kv.put("claude", parsed.data.claude);
       const device = this.#device();
       if (device !== null) this.ctx.storage.kv.put("device", { ...device, name: parsed.data.name });
+      return;
+    }
+    if (parsed.data.type === "model-chunk") {
+      this.#turns.get(parsed.data.id)?.enqueue(encoder.encode(parsed.data.data));
+      return;
+    }
+    if (parsed.data.type === "model-end") {
+      const controller = this.#turns.get(parsed.data.id);
+      if (controller === undefined) return;
+      this.#turns.delete(parsed.data.id);
+      if (parsed.data.error !== undefined) controller.enqueue(failureLine(parsed.data.error));
+      controller.close();
       return;
     }
     const resolve = this.#pending.get(parsed.data.id);
@@ -183,5 +234,10 @@ export class Mac extends DurableObject<Env> {
   #failPending(error: string): void {
     for (const resolve of this.#pending.values()) resolve({ ok: false, error });
     this.#pending.clear();
+    for (const controller of this.#turns.values()) {
+      controller.enqueue(failureLine(error));
+      controller.close();
+    }
+    this.#turns.clear();
   }
 }

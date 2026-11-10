@@ -1,7 +1,7 @@
 import { type AssistantMessage, type AssistantMessageEvent, createAssistantMessageEventStream, type Message, type Model, type ProviderStreams } from "@earendil-works/pi-ai";
 import { createProvider, type Provider } from "@earendil-works/pi-ai/models";
 import { z } from "zod";
-import { type Effort, models } from "./env";
+import { type Effort, macName, models } from "./env";
 import type { RecordTurn, TurnError, TurnUsage } from "./langfuse";
 
 export const claudeProviderId = "claude-container";
@@ -29,10 +29,79 @@ export interface ClaudeConnection {
   recordTurn: RecordTurn;
 }
 
+const firstChunkTimeoutMs = 90_000;
+const idleTimeoutMs = 180_000;
+
+type Chunk = ReadableStreamReadResult<Uint8Array>;
+
+async function readWithin(reader: ReadableStreamDefaultReader<Uint8Array>, ms: number): Promise<Chunk | "timeout"> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<"timeout">((resolve) => {
+    timer = setTimeout(() => resolve("timeout"), ms);
+  });
+  try {
+    return await Promise.race([reader.read(), timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function startsWithFailure(chunk: Uint8Array): boolean {
+  return new TextDecoder().decode(chunk.subarray(0, 64)).trimStart().startsWith('{"type":"failure"');
+}
+
+const turnBodySchema = z.record(z.string(), z.unknown());
+
+function withoutToken(body: string): string {
+  const turn = turnBodySchema.parse(JSON.parse(body));
+  delete turn.token;
+  return JSON.stringify(turn);
+}
+
+async function macTurn(env: Env, init: RequestInit): Promise<Response | null> {
+  if (typeof init.body !== "string") return null;
+  let stream: ReadableStream<Uint8Array> | null;
+  try {
+    stream = await env.MAC.getByName(macName).modelTurn(withoutToken(init.body));
+  } catch (error) {
+    console.error(JSON.stringify({ event: "mac_turn_unavailable", error: errorMessageOf(error) }));
+    return null;
+  }
+  if (stream === null) return null;
+  const reader = stream.getReader();
+  if (init.signal?.aborted) {
+    void reader.cancel();
+    init.signal.throwIfAborted();
+  }
+  init.signal?.addEventListener("abort", () => void reader.cancel(), { once: true });
+  const first = await readWithin(reader, firstChunkTimeoutMs).catch(() => "failed" as const);
+  init.signal?.throwIfAborted();
+  if (first === "timeout" || first === "failed" || first.done || startsWithFailure(first.value)) {
+    void reader.cancel().catch(() => undefined);
+    console.error(JSON.stringify({ event: "mac_turn_fell_back", reason: typeof first === "string" ? first : first.done ? "empty" : "failure" }));
+    return null;
+  }
+  let head: Uint8Array | undefined = first.value;
+  const body = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      if (head !== undefined) {
+        controller.enqueue(head);
+        head = undefined;
+        return;
+      }
+      const chunk = await reader.read();
+      if (chunk.done) controller.close();
+      else controller.enqueue(chunk.value);
+    },
+    cancel: (reason) => reader.cancel(reason),
+  });
+  return new Response(body, { headers: { "content-type": "application/x-ndjson" } });
+}
+
 export function claudeTransport(env: Env, containerName: string): ClaudeSession["send"] {
   const localUrl = env.CLAUDE_LOCAL_URL;
   if (localUrl) return (init) => fetch(`${localUrl}/claude/turn`, init);
-  return (init) => env.MODELS.getByName(containerName).fetch("http://container/claude/turn", init);
+  return async (init) => (await macTurn(env, init)) ?? env.MODELS.getByName(containerName).fetch("http://container/claude/turn", init);
 }
 
 export function claudeToken(env: Env): string | undefined {
@@ -93,17 +162,25 @@ async function openTurn(request: TurnRequest): Promise<ReadableStream<Uint8Array
 }
 
 async function* turnEvents(body: ReadableStream<Uint8Array>): AsyncGenerator<TurnEvent> {
+  const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
-  for await (const chunk of body) {
-    buffer += decoder.decode(chunk, { stream: true });
-    let newline = buffer.indexOf("\n");
-    while (newline >= 0) {
-      const line = buffer.slice(0, newline).trim();
-      buffer = buffer.slice(newline + 1);
-      if (line) yield parseTurnEvent(line);
-      newline = buffer.indexOf("\n");
+  try {
+    while (true) {
+      const chunk = await readWithin(reader, idleTimeoutMs);
+      if (chunk === "timeout") throw new ModelTurnError(`The model turn went quiet for ${idleTimeoutMs / 1000} seconds (timeout)`, undefined);
+      if (chunk.done) return;
+      buffer += decoder.decode(chunk.value, { stream: true });
+      let newline = buffer.indexOf("\n");
+      while (newline >= 0) {
+        const line = buffer.slice(0, newline).trim();
+        buffer = buffer.slice(newline + 1);
+        if (line) yield parseTurnEvent(line);
+        newline = buffer.indexOf("\n");
+      }
     }
+  } finally {
+    void reader.cancel().catch(() => undefined);
   }
 }
 
