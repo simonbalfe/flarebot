@@ -4,6 +4,7 @@ import { createModels } from "@earendil-works/pi-ai/models";
 import { type Conversation, type ConversationId, createRegistry, Harness, type SubmissionId, type SubmissionRecord, type Wake } from "@earendil-works/pi-durable";
 import { openDurableObjectSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/cloudflare";
 import { DurableObject } from "cloudflare:workers";
+import { z } from "zod";
 import { claudeProvider, claudeProviderId, claudeToken, claudeTransport } from "./claude";
 import { claudeModelId, computerName, defaultEffort, type Effort, userName } from "./env";
 import { recordTurns } from "./langfuse";
@@ -22,6 +23,10 @@ const takeoverDoneMessage = "I'm done, continue.";
 const unfinishedMessage = "I could not finish that.";
 const maxDeliveryAttempts = 5;
 const retryBaseMs = 5_000;
+const outboxRetryBaseMs = 5_000;
+const outboxRetryMaxMs = 5 * 60_000;
+const outboxGiveUpMs = 24 * 60 * 60_000;
+const mailboxRetentionMs = 7 * 24 * 60 * 60_000;
 const threadTitleChars = 40;
 interface PendingNotice {
   submissionId: SubmissionId;
@@ -44,10 +49,37 @@ export interface Envelope {
   replyThreadId?: string | null;
 }
 
+const envelopeSchema = z.object({
+  id: z.string(),
+  senderId: z.string(),
+  text: z.string(),
+  hops: z.number(),
+  replyTo: z.string().nullable(),
+  groupId: z.string().nullable(),
+  threadId: z.string().nullable().optional(),
+  replyThreadId: z.string().nullable().optional(),
+});
+
 interface ReplyTarget {
   botId: string;
   threadId: string | null;
 }
+
+interface PendingReply {
+  mailId: string;
+  target: ReplyTarget;
+  submissionId: SubmissionId;
+  runThreadId: string | null;
+  hops: number;
+}
+
+type OutboxRow = {
+  id: string;
+  target_id: string;
+  envelope: string;
+  attempts: number;
+  created_at: number;
+};
 
 export interface MailboxCounts {
   queued: number;
@@ -113,6 +145,7 @@ export class Bot extends DurableObject<Env> {
   #groupConversations = new Map<string, Promise<Conversation>>();
   #threadConversations = new Map<string, Promise<Conversation>>();
   #settlingGroupReplies: Promise<void> = Promise.resolve();
+  #settlingReplies: Promise<void> = Promise.resolve();
   #draining: Promise<void> = Promise.resolve();
   #saving: Promise<void> = Promise.resolve();
   #noticing: Promise<void> = Promise.resolve();
@@ -122,6 +155,7 @@ export class Bot extends DurableObject<Env> {
     ctx.storage.sql.exec(
       "CREATE TABLE IF NOT EXISTS flarebot_mailbox (id TEXT PRIMARY KEY, sender_id TEXT NOT NULL, text TEXT NOT NULL, hops INTEGER NOT NULL, reply_to TEXT, group_id TEXT, status TEXT NOT NULL, attempts INTEGER NOT NULL, next_at INTEGER NOT NULL, created_at INTEGER NOT NULL, delivered_at INTEGER, error TEXT)",
     );
+    ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS flarebot_outbox (id TEXT PRIMARY KEY, target_id TEXT NOT NULL, envelope TEXT NOT NULL, attempts INTEGER NOT NULL, next_at INTEGER NOT NULL, created_at INTEGER NOT NULL)");
     const mailboxColumns = ctx.storage.sql.exec<{ name: string }>("PRAGMA table_info(flarebot_mailbox)").toArray().map((column) => column.name);
     for (const column of ["thread_id", "reply_thread_id"]) {
       if (!mailboxColumns.includes(column)) ctx.storage.sql.exec(`ALTER TABLE flarebot_mailbox ADD COLUMN ${column} TEXT`);
@@ -156,7 +190,8 @@ export class Bot extends DurableObject<Env> {
           },
           botHops: () => ctx.storage.kv.get<number>("botHops") ?? 0,
           isRoot: (conversationId) => conversationId === this.#root.id,
-          owesReplyTo: (botId) => this.#replyTo().some((target) => target.botId === botId),
+          owesReplyTo: (botId) => this.#pendingReplies().some((reply) => reply.target.botId === botId),
+          send: (targetId, envelope) => this.#send(targetId, envelope),
           threadOf: (conversationId) => {
             const thread = this.#storedThreads().find((candidate) => candidate.conversationId === conversationId);
             return thread === undefined ? null : summaryOf(thread);
@@ -180,6 +215,7 @@ export class Bot extends DurableObject<Env> {
       await this.#arm(this.#harness.wake());
       this.#harness.resume();
       this.#queueGroupSettle();
+      this.#queueReplySettle();
       this.#queueDrain();
     });
   }
@@ -188,6 +224,7 @@ export class Bot extends DurableObject<Env> {
     await this.#arm({ ...this.#harness.wake(), active: true });
     this.#harness.resume();
     this.#queueGroupSettle();
+    this.#queueReplySettle();
     this.#queueDrain();
   }
 
@@ -554,7 +591,38 @@ export class Bot extends DurableObject<Env> {
     this.ctx.waitUntil(this.#draining);
   }
 
+  #send(targetId: string, envelope: Envelope): void {
+    const now = Date.now();
+    this.ctx.storage.sql.exec("INSERT OR IGNORE INTO flarebot_outbox (id, target_id, envelope, attempts, next_at, created_at) VALUES (?, ?, ?, 0, ?, ?)", envelope.id, targetId, JSON.stringify(envelope), now, now);
+    this.#queueDrain();
+  }
+
+  async #drainOutbox(): Promise<void> {
+    const due = this.ctx.storage.sql
+      .exec<OutboxRow>("SELECT id, target_id, envelope, attempts, created_at FROM flarebot_outbox WHERE next_at <= ? ORDER BY created_at, rowid", Date.now())
+      .toArray();
+    for (const row of due) {
+      try {
+        await this.env.BOT.getByName(row.target_id).enqueue(envelopeSchema.parse(JSON.parse(row.envelope)));
+        this.ctx.storage.sql.exec("DELETE FROM flarebot_outbox WHERE id = ?", row.id);
+      } catch (error) {
+        this.#outboxFailed(row, errorMessage(error));
+      }
+    }
+  }
+
+  #outboxFailed(row: OutboxRow, error: string): void {
+    if (Date.now() - row.created_at >= outboxGiveUpMs) {
+      this.ctx.storage.sql.exec("DELETE FROM flarebot_outbox WHERE id = ?", row.id);
+      console.error(JSON.stringify({ event: "outbox_abandoned", messageId: row.id, targetId: row.target_id, error }));
+      return;
+    }
+    const delay = Math.min(outboxRetryMaxMs, outboxRetryBaseMs * 2 ** Math.min(row.attempts, 10));
+    this.ctx.storage.sql.exec("UPDATE flarebot_outbox SET attempts = ?, next_at = ? WHERE id = ?", row.attempts + 1, Date.now() + delay, row.id);
+  }
+
   async #drain(): Promise<void> {
+    await this.#drainOutbox();
     const due = this.ctx.storage.sql
       .exec<MailRow>("SELECT id, sender_id, text, hops, reply_to, group_id, thread_id, reply_thread_id, attempts FROM flarebot_mailbox WHERE status = 'queued' AND next_at <= ? ORDER BY created_at, rowid", Date.now())
       .toArray();
@@ -565,9 +633,14 @@ export class Bot extends DurableObject<Env> {
         this.ctx.storage.sql.exec("UPDATE flarebot_mailbox SET status = 'delivered', delivered_at = ?, error = NULL WHERE id = ?", Date.now(), row.id);
         delivered += 1;
       } catch (error) {
-        await this.#deliveryFailed(row, error instanceof Error ? error.message : String(error));
+        try {
+          this.#deliveryFailed(row, error instanceof Error ? error.message : String(error));
+        } catch (failure) {
+          console.error(String(failure));
+        }
       }
     }
+    this.ctx.storage.sql.exec("DELETE FROM flarebot_mailbox WHERE status != 'queued' AND created_at < ?", Date.now() - mailboxRetentionMs);
     if (delivered > 0) await this.#report(true);
     await this.#arm(this.#harness.wake());
   }
@@ -578,19 +651,22 @@ export class Bot extends DurableObject<Env> {
       return;
     }
     this.ctx.storage.kv.put("botHops", row.hops);
-    if (row.reply_to !== null) this.#oweReply({ botId: row.reply_to, threadId: row.reply_thread_id });
     await this.#arm({ ...this.#harness.wake(), active: true });
     const thread = row.thread_id === null ? undefined : this.#openThread(row.thread_id);
-    if (thread !== undefined) {
-      const threadSubmission = await (await this.#threadConversation(thread)).submit({ type: "input", content: row.text, requestId: row.id, whenBusy: "followUp" }, context);
-      this.#updateThread(thread.id, { lastSubmission: threadSubmission.id });
-      return;
+    const conversation = thread === undefined ? this.#root : await this.#threadConversation(thread);
+    const submission = await conversation.submit({ type: "input", content: row.text, requestId: row.id, whenBusy: "followUp" }, context);
+    if (thread === undefined) this.ctx.storage.kv.put("lastSubmission", submission.id);
+    else this.#updateThread(thread.id, { lastSubmission: submission.id });
+    if (row.reply_to !== null) {
+      this.#oweReply({ mailId: row.id, target: { botId: row.reply_to, threadId: row.reply_thread_id }, submissionId: submission.id, runThreadId: thread?.id ?? null, hops: row.hops });
+    } else {
+      this.#awaitNotice({ submissionId: submission.id, threadId: thread?.id ?? null });
+      this.ctx.waitUntil(submission.wait(context).then(() => this.#queueNotices()));
     }
-    const submission = await this.#root.submit({ type: "input", content: row.text, requestId: row.id, whenBusy: "followUp" }, context);
-    this.ctx.storage.kv.put("lastSubmission", submission.id);
+    this.ctx.waitUntil(submission.wait(context).then(() => this.#queueReplySettle()));
   }
 
-  async #deliveryFailed(row: MailRow, error: string): Promise<void> {
+  #deliveryFailed(row: MailRow, error: string): void {
     const attempts = row.attempts + 1;
     if (attempts < maxDeliveryAttempts) {
       const nextAt = Date.now() + retryBaseMs * 2 ** row.attempts;
@@ -600,25 +676,23 @@ export class Bot extends DurableObject<Env> {
     this.ctx.storage.sql.exec("UPDATE flarebot_mailbox SET status = 'failed', attempts = ?, error = ? WHERE id = ?", attempts, error, row.id);
     console.error(JSON.stringify({ event: "mailbox_failed", messageId: row.id, error }));
     const profile = this.#profile();
-    if (row.group_id !== null || row.sender_id === profile.id) return;
-    try {
-      await this.env.BOT.getByName(row.sender_id).enqueue({
-        id: `${row.id}:undelivered`,
-        senderId: profile.id,
-        text: botReply(profile.name, `Your message could not be delivered: ${error}`),
-        hops: maxBotHops,
-        replyTo: null,
-        groupId: null,
-        threadId: row.reply_thread_id,
-      });
-    } catch (notifyError) {
-      console.error(String(notifyError));
-    }
+    if (row.group_id !== null || row.sender_id === profile.id || row.reply_to === null) return;
+    this.#send(row.sender_id, {
+      id: `${row.id}:undelivered`,
+      senderId: profile.id,
+      text: botReply(profile.name, `Your message could not be delivered: ${error}`),
+      hops: maxBotHops,
+      replyTo: null,
+      groupId: null,
+      threadId: row.reply_thread_id,
+    });
   }
 
   #nextRetryAt(): number | undefined {
-    const row = this.ctx.storage.sql.exec<{ next_at: number | null }>("SELECT MIN(next_at) AS next_at FROM flarebot_mailbox WHERE status = 'queued'").toArray()[0];
-    return row?.next_at ?? undefined;
+    const mailbox = this.ctx.storage.sql.exec<{ next_at: number | null }>("SELECT MIN(next_at) AS next_at FROM flarebot_mailbox WHERE status = 'queued'").toArray()[0];
+    const outbox = this.ctx.storage.sql.exec<{ next_at: number | null }>("SELECT MIN(next_at) AS next_at FROM flarebot_outbox").toArray()[0];
+    const due = [mailbox?.next_at, outbox?.next_at].filter((at) => at !== null && at !== undefined);
+    return due.length === 0 ? undefined : Math.min(...due);
   }
 
   #memory(): string[] {
@@ -634,14 +708,36 @@ export class Bot extends DurableObject<Env> {
     this.#wasActive = wake.active;
   }
 
-  #replyTo(): ReplyTarget[] {
-    const stored = this.ctx.storage.kv.get<(ReplyTarget | string)[]>("replyTo") ?? [];
-    return stored.map((target) => (typeof target === "string" ? { botId: target, threadId: null } : target));
+  #pendingReplies(): PendingReply[] {
+    return this.ctx.storage.kv.get<PendingReply[]>("pendingReplies") ?? [];
   }
 
-  #oweReply(target: ReplyTarget): void {
-    if (this.#replyTo().some((owed) => owed.botId === target.botId && owed.threadId === target.threadId)) return;
-    this.ctx.storage.kv.put("replyTo", [...this.#replyTo(), target]);
+  #oweReply(reply: PendingReply): void {
+    if (this.#pendingReplies().some((owed) => owed.mailId === reply.mailId)) return;
+    this.ctx.storage.kv.put("pendingReplies", [...this.#pendingReplies(), reply]);
+  }
+
+  #queueReplySettle(): void {
+    this.#settlingReplies = this.#settlingReplies.then(() => this.#settleReplies()).catch((error: unknown) => console.error(String(error)));
+    this.ctx.waitUntil(this.#settlingReplies);
+  }
+
+  async #settleReplies(): Promise<void> {
+    for (const reply of this.#pendingReplies()) {
+      const status = await (await this.#harness.submission(reply.submissionId, context))?.status(context);
+      if (status !== undefined && status.status !== "done" && status.status !== "unanswered") continue;
+      if (status !== undefined) {
+        const profile = this.#profile();
+        const text = await this.#replyText(reply, status);
+        this.#send(reply.target.botId, { id: `reply:${reply.mailId}`, senderId: profile.id, text: botReply(profile.name, text), hops: reply.hops + 1, replyTo: null, groupId: null, threadId: reply.target.threadId });
+      }
+      this.ctx.storage.kv.put("pendingReplies", this.#pendingReplies().filter((owed) => owed.mailId !== reply.mailId));
+    }
+  }
+
+  async #replyText(reply: PendingReply, last: SubmissionRecord): Promise<string> {
+    const thread = reply.runThreadId === null ? undefined : this.#storedThreads().find((candidate) => candidate.id === reply.runThreadId);
+    return this.#answerOf(thread === undefined ? this.#root : await this.#threadConversation(thread), last);
   }
 
   #conversationIds(): Record<string, ConversationId> {
@@ -709,7 +805,10 @@ export class Bot extends DurableObject<Env> {
 
   async #groupAnswer(groupId: string, last: SubmissionRecord): Promise<string | null> {
     if (last.status === "unanswered" && last.reason === "aborted") return null;
-    const conversation = await this.#groupConversation(groupId);
+    return this.#answerOf(await this.#groupConversation(groupId), last);
+  }
+
+  async #answerOf(conversation: Conversation, last: SubmissionRecord): Promise<string> {
     const state = await conversation.viewState(context);
     try {
       const view = toTranscriptView(state.value, last);
@@ -783,25 +882,6 @@ export class Bot extends DurableObject<Env> {
   async #settle(): Promise<void> {
     await this.#report(false);
     this.#queueNotices();
-    const recipients = this.#replyTo();
-    if (recipients.length === 0) return;
-    this.ctx.storage.kv.delete("replyTo");
-    const view = await this.view();
-    const turnStart = view.items.findLastIndex((item) => item.kind === "user" || item.kind === "peer");
-    const answer = view.items.slice(turnStart + 1).findLast((item) => item.kind === "assistant");
-    const text = answer?.kind === "assistant" ? answer.text : (view.error ?? unfinishedMessage);
-    const hops = (this.ctx.storage.kv.get<number>("botHops") ?? 0) + 1;
-    const profile = this.#profile();
-    const undelivered: ReplyTarget[] = [];
-    for (const target of recipients) {
-      try {
-        await this.env.BOT.getByName(target.botId).enqueue({ id: crypto.randomUUID(), senderId: profile.id, text: botReply(profile.name, text), hops, replyTo: null, groupId: null, threadId: target.threadId });
-      } catch (error) {
-        console.error(String(error));
-        undelivered.push(target);
-      }
-    }
-    if (undelivered.length > 0) this.ctx.storage.kv.put("replyTo", [...this.#replyTo(), ...undelivered]);
   }
 
   async #report(typing: boolean): Promise<void> {

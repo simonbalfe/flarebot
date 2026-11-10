@@ -46,6 +46,7 @@ export interface BotStore {
   botHops: () => number;
   isRoot: (conversationId: ConversationId) => boolean;
   owesReplyTo: (botId: string) => boolean;
+  send: (targetId: string, envelope: Envelope) => void;
   threadOf: (conversationId: ConversationId) => ThreadSummary | null;
 }
 
@@ -265,7 +266,7 @@ export function botExtension(env: Env, store: BotStore) {
         name: "message_bot",
         description: "Queue a message for another Bot by name. Its answer always comes back to you as a new message.",
         parameters: Type.Object({ to: Type.String(), message: Type.String() }),
-        replay: "unsafe",
+        replay: "safe",
         execute: async ({ to, message }, api) => {
           const thread = store.threadOf(api.conversationId);
           if (thread === null && !store.isRoot(api.conversationId)) return text("Not sent: in a group, write @Name in your answer to hand work to a member.");
@@ -277,7 +278,7 @@ export function botExtension(env: Env, store: BotStore) {
           if (thread === null && store.owesReplyTo(target.id)) return text(`Not sent: your final message goes back to ${target.name} automatically, so just answer normally.`);
           const profile = store.profile();
           const envelope: Envelope = {
-            id: crypto.randomUUID(),
+            id: `${api.conversationId}:${api.callId}`,
             senderId: profile.id,
             text: botMessage(profile.name, message),
             hops,
@@ -285,7 +286,7 @@ export function botExtension(env: Env, store: BotStore) {
             groupId: null,
             replyThreadId: thread?.id ?? null,
           };
-          await env.BOT.getByName(target.id).enqueue(envelope);
+          store.send(target.id, envelope);
           return text(`Queued for ${target.name}.`);
         },
       }),
