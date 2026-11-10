@@ -16,8 +16,8 @@ Run both checks after every code change. Docker or OrbStack must be running for 
 | Path | Contents |
 | --- | --- |
 | `src/worker/index.ts` | API routes and the screen proxy |
-| `src/worker/bot.ts` | `Bot` Durable Object: Pi harness, role, memory, mailbox, takeover, Bot replies |
-| `src/worker/claude.ts` | Pi provider and one-shot text call that send model turns to the Bot's `ModelContainer` and forward the bridge's events |
+| `src/worker/bot.ts` | `Bot` Durable Object: Pi harness, role, memory, mailbox, outbox, takeover, owed replies per submission |
+| `src/worker/claude.ts` | Pi provider and one-shot text call that send model turns to the connected Mac through `Mac.modelTurn`, or to the Bot's `ModelContainer` when no Mac is ready, and forward the bridge's events |
 | `src/worker/langfuse.ts` | Optional Langfuse trace for each model turn |
 | `src/worker/model-container.ts` | `ModelContainer` Durable Object |
 | `model-container/` | Image and `server.ts` that host the `pi-claude-bridge` extension (exact pin, loaded through `tsx`) behind a minimal Pi extension host. `tsconfig.json` maps the two bridge imports to the type-only files in `types/`, so the bridge's own sources are never type-checked. `bun run claude:local` runs the same server on the Mac, and `CLAUDE_LOCAL_URL` makes the local Worker use it. Keep its pins in step with the root `package.json`, and run `npm install --package-lock-only --ignore-scripts` there after changing them. Upgrade the bridge by bumping its pin and re-running a text turn and a tool-call turn against the container |
@@ -45,8 +45,8 @@ Run both checks after every code change. Docker or OrbStack must be running for 
 | `src/web/` | React UI |
 | `src/web/styles.css` | Design tokens and Kumo theme overrides |
 | `computer/` | Desktop image, cookie loader, and `browser-tab.mjs` (CDP tab control, sent by the Worker at run time) |
-| `src-tauri/` | Tauri 2 desktop shell around the same web UI: `tauri.conf.json`, a Rust entry point with no commands yet, and icons. Crate and CLI pins are exact |
-| `scripts/` | Local dev, deploy, cookie import, copying files to the computer, and `tauri.sh` (`tauri:dev` and `tauri:build`, which injects the deployed URL) |
+| `src-tauri/` | Tauri 2 desktop shell around the same web UI: `tauri.conf.json`, a Rust entry point that starts and stops the bundled `flarebot-local` daemon and hides the window on close, and icons. Crate and CLI pins are exact |
+| `scripts/` | Local dev, deploy, cookie import, copying files to the computer, and `tauri.sh` (`tauri:dev` and `tauri:build`, which both point the window and the daemon at the deployed URL) |
 
 ## Rules
 

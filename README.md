@@ -36,6 +36,8 @@ Inspired by the UX of [Grok Bot](https://docs.x.ai/grok-bot/overview).
 | Bots write their own CLIs in any language and skills, and publish them to the pool | Built, a Bot has published a Go CLI; skill publishing not yet run by a Bot |
 | Your own Mac as native Bot tools, through the `flarebot-local` daemon, with allowed folders and an approval dialog per action | Built, run by a Bot on live |
 | One-line Mac install with a LaunchAgent, a folder picker and browser approval instead of pairing codes | Built, link flow and daemon tested locally |
+| Model turns on your own Mac's Claude Code login through the Mac daemon, falling back to the cloud container when the Mac is offline | Built, not yet run live |
+| Desktop app (Tauri) that starts the Mac daemon and keeps it running when the window is closed | Built, compiles, not yet run |
 | Connected apps, MCP OAuth sign-in, Vault | Planned |
 | Push notifications when a Bot finishes, from the bell in the chat list | Built, encryption and signing checked locally |
 | Optional Langfuse traces for every model turn, on when the `LANGFUSE_*` secrets are in Infisical | Built |
@@ -70,12 +72,12 @@ Read [Cookie import](docs/architecture.md#cookie-import) before importing. Every
 
 ## How it works
 
-![You chat with each Bot. Bots message each other. Each Bot's threads work in one folder that auto-saves to its own Artifacts repo.](docs/how-it-works.svg)
+![Container diagram. You use the web or desktop app, the Worker routes to Bot Durable Objects, model turns go over a WebSocket to Claude Code on your Mac or to a cloud container, and Bots use a shared computer, Artifacts folders and MCP servers.](docs/how-it-works.svg)
 
-- **Bot:** a Durable Object with its own role, memory, threads and inbox. It runs the agent loop on your Claude subscription, through the Claude Agent SDK in a container.
+- **Bot:** a Durable Object with its own role, memory, threads, inbox and outbox. It runs the agent loop in Pi. Model turns go to Claude Code on your Mac through the `Mac` Durable Object and the daemon when your Mac is connected and logged in, and otherwise to a cloud container.
 - **Threads:** each thread is a new conversation, in the Bot's own folder or in a project.
 - **Projects:** shared Artifacts repos. A Bot works in a project on its own branch, `flarebot/<Bot repo>`.
-- **Messages:** any Bot can message any other Bot through that Bot's inbox, and the answer comes back the same way.
+- **Messages:** any Bot can message any other Bot. The sender writes to its outbox, which retries until the other Bot's inbox accepts it, and the answer comes back the same way.
 - **Folder:** `/workspace/bots/<Bot ID>` on the shared computer, a git clone of the Bot's own Cloudflare Artifacts repo, auto-saved when the Bot goes idle.
 - **Computer:** one Linux container shared by all Bots, with one Chrome and a window per Bot, that sleeps when idle.
 

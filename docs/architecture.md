@@ -44,7 +44,9 @@ Bubbles cross only through messages: `message_bot`, the replies it triggers, and
 - `wrangler.jsonc` allows 20 `ModelContainer` instances, one per active Bot.
 - **Local Claude (dev only):** with `CLAUDE_LOCAL_URL` set, `claudeTransport` in `claude.ts` posts turns to that URL instead of a `ModelContainer`, and `claudeToken` sends no token. `bun run claude:local` runs the same `server.ts` natively on the Mac at `http://127.0.0.1:8788`, so Claude Code uses the Mac's own `claude auth login` session. `scripts/dev.sh` sets `CLAUDE_LOCAL_URL` to that address by default and refuses to start if it isn't up. Run `CLAUDE_LOCAL_URL= bun run dev` to use the Docker container and the `sec` token instead.
 - The local run keeps its sessions in `~/.flarebot-local/sessions` and the bridge state in `~/.flarebot-local/pi-agent`. Claude Code also writes its own session files under `~/.claude`, so these Bot sessions appear in your Claude Code history.
-- The deployed Worker can't reach your Mac, so production never sets `CLAUDE_LOCAL_URL` and keeps using containers with the Worker secret.
+- **Mac relay (live):** the deployed Worker can't reach your Mac, so production never sets `CLAUDE_LOCAL_URL`. Instead `claudeTransport` first calls `Mac.modelTurn`, which sends `{type: "model-turn", id, body}` down the daemon's WebSocket and streams the NDJSON back as `model-chunk` and `model-end` messages. The Worker strips `token` from the body first, so the Mac only ever uses its own `claude auth login` session. If no Mac is connected, or its last `hello` said `claude: false`, the turn goes to the Bot's `ModelContainer` with the Worker secret as before.
+- **Mac relay fallback:** `macTurn` waits up to 90 seconds for the first chunk. If the Mac sends nothing, ends empty, errors, or its first line is a `failure`, the Mac turn is cancelled and the same turn runs on the Bot's `ModelContainer`. A model turn runs no tools, so running it twice is safe, but it can cost twice.
+- **Mac relay limits:** the choice is made per turn, so a Bot can move between the Mac and the container between turns. A turn that fails after its first chunk is not moved to the container, though Pi retries errors that look transient. Every turn, on the Mac or the container, fails with a `timeout` error after 180 seconds with no data. Sessions on the Mac live under `~/.flarebot-local/sessions`, separate from the container's.
 - Each Bot stores its own model and effort. A new effort applies from the next turn, and group routing always runs at low effort.
 
 **Limits:**
@@ -59,9 +61,11 @@ Bubbles cross only through messages: `message_bot`, the replies it triggers, and
 `src-tauri/` is a Tauri 2 shell around the same React and Kumo UI. It adds no UI code, so the interface is identical to the web app.
 
 - The window loads the deployed app URL, so `/api`, cookies, sign-in and the live browser view behave as they do in a browser, with no CORS or cookie changes.
-- `bun run tauri:dev` opens a window on the dev server at `http://127.0.0.1:8787`. Start `bun run dev` first.
+- `bun run tauri:dev` opens a window on the deployed app, so it shows the live Bots, memory and Mac link. No local dev server is needed. Worker changes reach it only after `scripts/deploy.sh`, because local dev can't bind Durable Objects or containers to the deployed ones.
 - `bun run tauri:build` reads `FLAREBOT_DOMAIN` with `sec`, builds the web app and bundles `Flarebot.app` with that URL. `scripts/tauri.sh` sets it through `TAURI_CONFIG`.
-- The shell has no Rust commands and no capabilities yet. The Mac daemon sidecar, native approval dialogs and the streaming relay to a local Claude are not built.
+- On launch the shell starts `flarebot-local` (bundled as the resource `daemon/flarebot-local.ts`) with `~/.bun/bin/bun run --url <app url>`, and stops it with SIGTERM on quit. `FLAREBOT_APP_URL` is read at compile time, defaulting to `http://127.0.0.1:8787`; `scripts/tauri.sh` sets it to the deployed URL for both `dev` and `build`. If the LaunchAgent daemon is already running, the second copy exits on the lock and the app uses the running one.
+- Closing the window hides it and keeps the daemon running. Clicking the Dock icon shows it again, and Quit stops the daemon.
+- The shell has no Rust commands, tray icon or login item yet. Native approval dialogs are still the daemon's `osascript` dialogs. Bun must be installed at `~/.bun/bin/bun`, and `node`, `npm` and `claude` must be on the login shell's `PATH`.
 - Web Push and the service worker are the browser's. They are not wired to the desktop window.
 
 ## Flows
@@ -102,13 +106,16 @@ Chromium runs once, with its debugging port on 9222. Every Bot drives its own wi
 
 Your own messages go straight into a Bot's chat and steer the current turn. Everything from another Bot or a group goes through the receiving Bot's mailbox.
 
-1. `message_bot` writes an envelope to the other Bot's `flarebot_mailbox` table and returns. The envelope holds an ID, sender, text, chain count, who is owed a reply, and the group, if any.
-2. The receiving Bot drains its mailbox at once, after each alarm, and after a restart. It submits each envelope as a follow-up, using the envelope ID as the request ID, and marks it `delivered`.
-3. A failed delivery retries 5 times, waiting 5, 10, 20 and 40 seconds. The alarm is set for the next retry. After the last attempt the envelope is marked `failed`, and the sender gets a message saying it was not delivered.
-4. When that Bot's turn ends, its final message goes back to the sender's mailbox. A reply that can't be queued stays owed and is sent at the next settle.
-5. That returned reply doesn't trigger another one. Every `message_bot` is owed a reply; there is no opt-out, so the sender always sees the answer and relays it to you.
-6. A request reaches the other Bot marked `[Message from Bot: name]`, and the answer comes back marked `[Reply from Bot: name]`, so each Bot knows whether its answer is routed back. The transcript shows both as messages from that Bot.
-6. A chain stops after 6 messages, and resets when you next write to that Bot.
+1. `message_bot` writes an envelope to the sending Bot's own `flarebot_outbox` table and returns. The envelope ID is `<conversation id>:<tool call id>`, so a replayed call writes the same row. The envelope holds an ID, sender, text, chain count, who is owed a reply, and the group, if any.
+2. The sender drains its outbox at once, after each alarm, and after a restart. It calls the target's `enqueue()` and deletes the row on success. A failed call retries after 5 seconds, doubling up to 5 minutes, and is abandoned after 24 hours with an `outbox_abandoned` log line.
+3. The receiving Bot's `enqueue()` inserts the envelope into its `flarebot_mailbox` table, ignoring an ID it already has. It drains the mailbox at once, after each alarm, and after a restart, submits each envelope as a follow-up using the envelope ID as the request ID, and marks it `delivered`.
+4. A failed submit retries 5 times, waiting 5, 10, 20 and 40 seconds. After the last attempt the envelope is marked `failed`. If it was a request that is owed a reply, the sender gets a message through its outbox saying it was not delivered. A reply or notice that fails does not generate another notice.
+5. Each owed reply is stored with the submission that will answer it. When that submission is done or unanswered, the answer from the conversation it ran in goes back through the outbox with the ID `reply:<envelope id>`, and the owed entry is deleted afterwards. A reply to a request that was stopped says it could not finish.
+6. A mailbox message that is not a request, such as a reply or an undelivered notice, queues a push notification when its turn ends.
+7. Delivered and failed mailbox rows older than 7 days are deleted.
+8. That returned reply doesn't trigger another one. Every `message_bot` is owed a reply; there is no opt-out, so the sender always sees the answer and relays it to you.
+9. A request reaches the other Bot marked `[Message from Bot: name]`, and the answer comes back marked `[Reply from Bot: name]`, so each Bot knows whether its answer is routed back. The transcript shows both as messages from that Bot.
+10. A chain stops after 6 messages, and resets when you next write to that Bot.
 
 `GET /api/bots/:id` returns `mailbox.queued` and `mailbox.failed`.
 
@@ -340,15 +347,17 @@ Bot tool mac_* ──▶ Mac Durable Object ──WebSocket──▶ flarebot-lo
 | `mac_open` | An http(s) URL, or a file or folder, with `open` |
 
 1. **Link security:** the user code is 8 characters and the link lasts 10 minutes. Starting a new link replaces a pending one. The device code and the device token are random 256-bit values; the `Mac` Durable Object stores only their SHA-256 hashes. The daemon keeps the token in `~/.config/flarebot-local/config.json` with mode `0600`. Linking again replaces the old device.
-2. **Routes:** `/mac/install.sh`, `/mac/flarebot-local.ts`, `POST /api/mac/link`, `POST /api/mac/link/poll`, `GET /api/mac/whoami` and `GET /api/mac/connect` sit outside the session check, because the daemon has no session. Approving (`POST /api/mac/link/approve`), status, unpair and the per-Bot switch need a session.
+2. **Routes:** `/mac/install.sh`, `/mac/flarebot-local.ts`, `/mac/model-server/<file>`, `POST /api/mac/link`, `POST /api/mac/link/poll`, `GET /api/mac/whoami` and `GET /api/mac/connect` sit outside the session check, because the daemon has no session. Approving (`POST /api/mac/link/approve`), status, unpair and the per-Bot switch need a session.
 3. **Requests:** a tool call becomes `Mac.request`, which sends `{id, bot, action}` over the socket and waits up to 6 minutes for the result. Offline, unpaired and disconnected Macs fail at once with a clear error.
 4. **The daemon decides:** before any dialog, it refuses relative paths, paths outside the allowed folders after resolving symlinks and `..`, any command containing `sudo`, and everything when no folder is allowed. Then it shows a macOS dialog: **Deny**, **Allow once** or **Always allow <Bot>**. The dialog denies after 120 seconds. Requests run one at a time.
 5. **Always allow** is stored per Bot ID in the daemon config.
 6. **Unpair:** the **×** in Details → Mac closes the socket. The daemon clears its token, shows a notification and exits; running the install command again reconnects.
 7. The prompt describes the Mac tools only to a Bot whose **Access** is ticked. With it off, every Mac tool fails.
+8. **Claude relay:** on start the daemon downloads `server.ts`, `package.json` and `package-lock.json` from `/mac/model-server/` into `~/.flarebot-local/model-server`, runs `npm ci --ignore-scripts` when the lockfile changed, and starts `server.ts` on `127.0.0.1:48789` with the three Claude token variables removed from its environment. It then sends `hello` with `claude: true` when `/health` answers with exactly `ok` (so another program on that port is not mistaken for it) and `claude auth status` reports `loggedIn`, and repeats the check every minute. Model turns are not queued behind approval dialogs, run up to 5 at a time, and are cancelled by `model-cancel` or when the socket closes.
 
 **Limits:**
 - One Mac per account.
+- The Claude relay uses the Mac's Claude Code login with no approval dialog, so any Bot's model turn runs there. Its sessions also appear in your Claude Code history under `~/.claude`.
 - Approval happens only on the Mac, so a Mac away from you denies by timeout.
 - `mac_run` is a full shell inside the allowed folder once approved; the folder check covers its starting folder, not what the command touches.
 - Like any device-code flow, anyone can start a link. Approve only a code your own Mac is showing.
