@@ -342,6 +342,10 @@ export class Bot extends DurableObject<Env> {
     this.ctx.storage.kv.put(kind, this.#ticked(kind).filter((item) => item.name !== name));
   }
 
+  renameThread(threadId: string, title: string): void {
+    this.#updateThread(threadId, { title });
+  }
+
   async closeThread(threadId: string): Promise<void> {
     const thread = this.#openThread(threadId);
     if (thread === undefined) return;

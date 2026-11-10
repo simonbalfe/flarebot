@@ -45,6 +45,7 @@ const botMacBody = z.object({ enabled: z.boolean() });
 const projectName = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/);
 const projectBody = z.object({ name: projectName });
 const newThreadBody = z.object({ project: projectName.nullable().default(null) });
+const threadTitleBody = z.object({ title: z.string().trim().min(1).max(60) });
 const newGroupBody = z.object({
   name: z.string().trim().max(60).default(""),
   botIds: z.array(z.string()).min(2).max(6),
@@ -242,6 +243,14 @@ app.get("/api/bots/:id/threads/:threadId", async (c) => {
   const threadId = c.req.param("threadId");
   const bot = await ownedThread(c.env, c.req.param("id"), threadId);
   return c.json(await bot.threadView(threadId));
+});
+
+app.patch("/api/bots/:id/threads/:threadId", async (c) => {
+  const body = threadTitleBody.parse(await c.req.json());
+  const threadId = c.req.param("threadId");
+  const bot = await ownedThread(c.env, c.req.param("id"), threadId);
+  await bot.renameThread(threadId, body.title);
+  return c.body(null, 204);
 });
 
 app.post("/api/bots/:id/threads/:threadId/messages", async (c) => {

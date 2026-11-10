@@ -31,7 +31,7 @@ type Panel = "computer" | "details";
 
 type RowAction = { label: string; danger?: boolean; onSelect: () => void };
 
-function RowMenu({ actions, children }: { actions: RowAction[]; children: React.ReactNode }) {
+function RowMenu({ actions, className = "", children }: { actions: RowAction[]; className?: string; children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   const pressTimer = useRef<number | null>(null);
   const longPressed = useRef(false);
@@ -47,7 +47,7 @@ function RowMenu({ actions, children }: { actions: RowAction[]; children: React.
       }}
     >
       <DropdownMenu.Trigger
-        render={<div className="fb-no-callout" />}
+        render={<div className={`fb-no-callout ${className}`} />}
         nativeButton={false}
         onContextMenu={(event) => {
           event.preventDefault();
@@ -445,17 +445,19 @@ function viewKeyOf(botId: string, threadId: string | null): string {
   return `${botId}:${threadId ?? "main"}`;
 }
 
-function ThreadBar({ threads, projects, current, onOpen, onNew, onClose }: { threads: ThreadSummary[]; projects: string[]; current: string | null; onOpen: (id: string | null) => void; onNew: (project: string | null) => void; onClose: (id: string) => void }) {
+function ThreadBar({ threads, projects, current, onOpen, onNew, onRename, onClose }: { threads: ThreadSummary[]; projects: string[]; current: string | null; onOpen: (id: string | null) => void; onNew: (project: string | null) => void; onRename: (thread: ThreadSummary) => void; onClose: (id: string) => void }) {
   const tab = "fb-callout flex h-7 max-w-[220px] shrink-0 cursor-pointer items-center gap-1 rounded-full px-3";
   return (
     <div className="flex h-11 shrink-0 items-center gap-1 overflow-x-auto border-b-[0.5px] border-fb-line px-3 [scrollbar-width:none]">
       <button type="button" className={`${tab} ${current === null ? "bg-fb-active font-medium text-fb-text" : "text-fb-preview hover:bg-fb-active"}`} onClick={() => onOpen(null)}>Main</button>
       {threads.map((thread) => (
-        <span key={thread.id} className={`${tab} pr-1 ${current === thread.id ? "bg-fb-active font-medium text-fb-text" : "text-fb-preview hover:bg-fb-active"}`}>
-          {thread.project === null ? null : <span className="fb-caption shrink-0 rounded-full bg-fb-field px-1.5 text-fb-preview">{thread.project}</span>}
-          <button type="button" className="min-w-0 cursor-pointer truncate" onClick={() => onOpen(thread.id)}>{thread.title === "" ? "New thread" : thread.title}</button>
-          <button type="button" aria-label="Close thread" className="grid size-5 shrink-0 cursor-pointer place-items-center rounded-full hover:bg-fb-line" onClick={() => onClose(thread.id)}><XIcon size={10} /></button>
-        </span>
+        <RowMenu key={thread.id} className="shrink-0" actions={[{ label: "Rename", onSelect: () => onRename(thread) }]}>
+          <span className={`${tab} pr-1 ${current === thread.id ? "bg-fb-active font-medium text-fb-text" : "text-fb-preview hover:bg-fb-active"}`}>
+            {thread.project === null ? null : <span className="fb-caption shrink-0 rounded-full bg-fb-field px-1.5 text-fb-preview">{thread.project}</span>}
+            <button type="button" className="min-w-0 cursor-pointer truncate" onClick={() => onOpen(thread.id)} onDoubleClick={() => onRename(thread)}>{thread.title === "" ? "New thread" : thread.title}</button>
+            <button type="button" aria-label="Close thread" className="grid size-5 shrink-0 cursor-pointer place-items-center rounded-full hover:bg-fb-line" onClick={() => onClose(thread.id)}><XIcon size={10} /></button>
+          </span>
+        </RowMenu>
       ))}
       {projects.length === 0 ? (
         <button type="button" aria-label="Start thread" className={iconButton} onClick={() => onNew(null)}><PlusIcon size={14} /></button>
@@ -472,6 +474,33 @@ function ThreadBar({ threads, projects, current, onOpen, onNew, onClose }: { thr
         </DropdownMenu>
       )}
     </div>
+  );
+}
+
+type Confirmation = { title: string; action: string; run: () => void };
+
+function ConfirmDialog({ confirmation, onClose }: { confirmation: Confirmation; onClose: () => void }) {
+  return (
+    <Dialog.Root open onOpenChange={(open: boolean) => { if (!open) onClose(); }}>
+      <Dialog size="sm" className="flex flex-col gap-4 rounded-[28px]! border-0! bg-fb-pane! p-6! [corner-shape:squircle]">
+        <Dialog.Title className="fb-body font-semibold">{confirmation.title}</Dialog.Title>
+        <div className="flex justify-end gap-2">
+          <Button type="button" size="sm" variant="secondary" className="rounded-full!" onClick={onClose}>Cancel</Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="destructive"
+            className="rounded-full!"
+            onClick={() => {
+              onClose();
+              confirmation.run();
+            }}
+          >
+            {confirmation.action}
+          </Button>
+        </div>
+      </Dialog>
+    </Dialog.Root>
   );
 }
 
@@ -565,6 +594,8 @@ function Workspace() {
   const [overlay, setOverlay] = useState<"take" | "new" | "group" | null>(null);
   const [editingBot, setEditingBot] = useState<BotSummary | null>(null);
   const [renamingGroup, setRenamingGroup] = useState<GroupSummary | null>(null);
+  const [renamingThread, setRenamingThread] = useState<ThreadSummary | null>(null);
+  const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const mobile = useIsMobile();
   const [mobileChat, setMobileChat] = useState(false);
   const panelRef = useRef<Panel | null>(null);
@@ -745,8 +776,11 @@ function Workspace() {
   };
 
   const removeFromPool = (kind: PoolKind, name: string) => {
-    if (!window.confirm(`Remove ${name} for every Bot?`)) return;
-    void guard(() => api.removePoolItem(kind, name)).then(() => Promise.all([loadPool(), currentId !== null ? loadView(currentId, threadId) : undefined]));
+    setConfirmation({
+      title: `Remove ${name} for every Bot?`,
+      action: "Remove",
+      run: () => void guard(() => api.removePoolItem(kind, name)).then(() => Promise.all([loadPool(), currentId !== null ? loadView(currentId, threadId) : undefined])),
+    });
   };
 
   const toggleMcp = async (current: BotView | null, serverId: string) => {
@@ -785,7 +819,6 @@ function Workspace() {
     await loadView(currentId, threadId === id ? null : threadId);
   };
   const deleteBot = async (bot: BotSummary) => {
-    if (!window.confirm(`Delete ${bot.name}?`)) return;
     await guard(() => api.deleteBot(bot.id));
     if (currentId === bot.id) {
       setCurrentId(null);
@@ -795,7 +828,6 @@ function Workspace() {
     await loadBots();
   };
   const deleteGroup = async (group: GroupSummary) => {
-    if (!window.confirm(`Delete ${group.name}?`)) return;
     await guard(() => api.deleteGroup(group.id));
     if (currentGroupId === group.id) setCurrentGroupId(null);
     await loadBots();
@@ -851,9 +883,9 @@ function Workspace() {
     onNew: () => setOverlay("new"),
     onNewGroup: () => setOverlay("group"),
     onEditBot: setEditingBot,
-    onDeleteBot: (bot) => void deleteBot(bot),
+    onDeleteBot: (bot) => setConfirmation({ title: `Delete ${bot.name}?`, action: "Delete", run: () => void deleteBot(bot) }),
     onRenameGroup: setRenamingGroup,
-    onDeleteGroup: (group) => void deleteGroup(group),
+    onDeleteGroup: (group) => setConfirmation({ title: `Delete ${group.name}?`, action: "Delete", run: () => void deleteGroup(group) }),
   };
 
   const mobileHeader = (
@@ -905,7 +937,7 @@ function Workspace() {
     currentGroup === undefined ? (
       <>
         {summary === undefined ? null : (
-          <ThreadBar threads={shown?.threads ?? view?.threads ?? []} projects={projects} current={threadId} onOpen={setThreadId} onNew={(project) => void newThread(project)} onClose={(id) => void closeThread(id)} />
+          <ThreadBar threads={shown?.threads ?? view?.threads ?? []} projects={projects} current={threadId} onOpen={setThreadId} onNew={(project) => void newThread(project)} onRename={setRenamingThread} onClose={(id) => void closeThread(id)} />
         )}
         {shown === null ? <div className="flex-1" /> : <Transcript view={shown} bots={bots} pending={pending} onTakeOver={openComputer} />}
         {summary === undefined ? null : (
@@ -957,7 +989,7 @@ function Workspace() {
                   efforts={efforts}
                   onModel={(model) => currentId !== null && void guard(() => api.setModel(currentId, model)).then(() => loadView(currentId, threadId))}
                   onEffort={(effort) => currentId !== null && void guard(() => api.setEffort(currentId, effort)).then(() => loadView(currentId, threadId))}
-                  onClear={() => currentId !== null && window.confirm(`Clear ${shown.profile.name}'s main chat?`) && void guard(() => api.clearMain(currentId)).then(() => Promise.all([loadView(currentId, threadId), loadBots()]))}
+                  onClear={() => currentId !== null && setConfirmation({ title: `Clear ${shown.profile.name}'s main chat?`, action: "Clear", run: () => void guard(() => api.clearMain(currentId)).then(() => Promise.all([loadView(currentId, threadId), loadBots()])) })}
                   onRole={(role) => currentId !== null && void guard(() => api.setRole(currentId, role)).then(() => Promise.all([loadView(currentId, threadId), loadBots()]))}
                   onForget={(index) => currentId !== null && void guard(() => api.forget(currentId, index)).then(() => loadView(currentId, threadId))}
                   mcpServers={mcpServers}
@@ -993,7 +1025,7 @@ function Workspace() {
                     enabled={shown.macAccess}
                     onToggle={() => currentId !== null && void guard(() => api.setBotMac(currentId, !shown.macAccess)).then(() => loadView(currentId, threadId))}
                     onApprove={(userCode) => void guard(() => api.approveMacLink(userCode)).then(() => loadMac())}
-                    onUnpair={() => window.confirm("Unpair this Mac?") && void guard(api.unpairMac).then(() => loadMac())}
+                    onUnpair={() => setConfirmation({ title: "Unpair this Mac?", action: "Unpair", run: () => void guard(api.unpairMac).then(() => loadMac()) })}
                   />
                 </DetailsPanel>
               ) : null}
@@ -1058,6 +1090,21 @@ function Workspace() {
           }}
         />
       )}
+      {renamingThread === null ? null : (
+        <BotDialog
+          title="Rename thread"
+          submitLabel="Save"
+          initial={{ name: renamingThread.title, role: "" }}
+          withRole={false}
+          onClose={() => setRenamingThread(null)}
+          onSubmit={(input) => {
+            const id = renamingThread.id;
+            setRenamingThread(null);
+            if (currentId !== null) void guard(() => api.renameThread(currentId, id, input.name)).then(() => loadView(currentId, threadId));
+          }}
+        />
+      )}
+      {confirmation === null ? null : <ConfirmDialog confirmation={confirmation} onClose={() => setConfirmation(null)} />}
       {overlay === "group" ? (
         <NewGroup
           bots={bots}

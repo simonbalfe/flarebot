@@ -75,6 +75,7 @@ export const api = {
   thread: (id: string, threadId: string) => call<BotView>(threadPath(id, threadId)),
   sendThread: (id: string, threadId: string, text: string) => call<void>(`${threadPath(id, threadId)}/messages`, { method: "POST", body: JSON.stringify({ text }) }),
   stopThread: (id: string, threadId: string) => call<void>(`${threadPath(id, threadId)}/stop`, { method: "POST" }),
+  renameThread: (id: string, threadId: string, title: string) => call<void>(threadPath(id, threadId), { method: "PATCH", body: JSON.stringify({ title }) }),
   closeThread: (id: string, threadId: string) => call<void>(`${threadPath(id, threadId)}/close`, { method: "POST" }),
   showTab: (id: string) => call<void>(`${botPath(id)}/tab/show`, { method: "POST" }),
   mac: () => call<MacStatus>("/mac"),

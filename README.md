@@ -15,7 +15,7 @@ Inspired by the UX of [Grok Bot](https://docs.x.ai/grok-bot/overview).
 | Named Bots with a role, chat, steering and stop | Built |
 | Memory managed through chat, and a model and effort picker per Bot | Built |
 | One shared computer and Chrome, with a window and folder per Bot | Built, tab control tested locally |
-| Threads per Bot: start, switch, stop and close | Built, start and close tested locally |
+| Threads per Bot: start, switch, rename, stop and close | Built, start and close tested locally |
 | Clear a Bot's main chat from Details, keeping its memory, folder and threads | Built, tested locally |
 | Each Bot's folder is a clone of its own Cloudflare Artifacts repo, shared by all its threads and auto-saved when the Bot goes idle | Built, clone and auto-save tested locally |
 | Projects: shared Artifacts repos any Bot can start a thread in, on its own branch | Built, clone tested locally |

@@ -67,6 +67,7 @@ Bubbles cross only through messages: `message_bot`, the replies it triggers, and
 - Closing the window hides it and keeps the daemon running. Clicking the Dock icon shows it again, and Quit stops the daemon.
 - The shell has no Rust commands, tray icon or login item yet. Native approval dialogs are still the daemon's `osascript` dialogs. Bun must be installed at `~/.bun/bin/bun`, and `node`, `npm` and `claude` must be on the login shell's `PATH`.
 - Web Push and the service worker are the browser's. They are not wired to the desktop window.
+- `window.confirm` returns false without showing anything in the desktop window, because wry's macOS WebView delegate has no JavaScript dialog handlers. The web UI uses `ConfirmDialog` instead.
 
 ## Flows
 
@@ -244,13 +245,14 @@ A Bot has its main chat plus any threads you start. A thread is a new Pi convers
 | --- | --- |
 | Start a thread | `POST /api/bots/:id/threads` with `{"project": null}` for the own folder, or a project name |
 | Read one | `GET /api/bots/:id/threads/:threadId` |
+| Rename it | `PATCH /api/bots/:id/threads/:threadId` with `{"title": "..."}`, 1 to 60 characters |
 | Send to it | `POST /api/bots/:id/threads/:threadId/messages` |
 | Stop its turn | `POST /api/bots/:id/threads/:threadId/stop` |
 | Close it | `POST /api/bots/:id/threads/:threadId/close` |
 
 1. `threads` in the `Bot` storage holds each thread's ID, title, conversation ID, last submission and whether it's closed. `GET /api/bots/:id` lists the open ones.
-2. A thread's title is the first 40 characters of its first message.
-3. The tab bar above the transcript switches between **Main** and the threads, and closes one with its **×**. **+** opens a menu of **Own folder** and each project. A project thread's tab shows the project name. Closing stops the thread's turn and auto-saves its folder.
+2. A thread's title is the first 40 characters of its first message, unless it has already been renamed.
+3. The tab bar above the transcript switches between **Main** and the threads, and closes one with its **×**. Double-clicking a thread's title, right-clicking its tab or long-pressing it on a phone renames it. **Main** keeps its name. **+** opens a menu of **Own folder** and each project. A project thread's tab shows the project name. Closing stops the thread's turn and auto-saves its folder.
 
 **Limits:**
 - Only the main chat can `message_bot`, so Bot replies and the mailbox always go to the main chat.
