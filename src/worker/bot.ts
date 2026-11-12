@@ -464,6 +464,12 @@ export class Bot extends DurableObject<Env> {
     this.ctx.storage.kv.put("memory", this.#memory().filter((_, position) => position !== index));
   }
 
+  remember(item: string): string[] {
+    const memory = [...this.#memory(), item];
+    this.ctx.storage.kv.put("memory", memory);
+    return memory;
+  }
+
   view(): Promise<BotView> {
     return this.#viewOf(this.#root, this.ctx.storage.kv.get<SubmissionId>("lastSubmission"));
   }

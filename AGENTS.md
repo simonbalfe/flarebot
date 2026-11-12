@@ -38,10 +38,12 @@ Run both checks after every code change. Docker or OrbStack must be running for 
 | `src/worker/mcp.ts` | Remote MCP servers through `@earendil-works/pi-mcp`: list tools, call a tool |
 | `src/worker/computer.ts` | `SharedComputer` Durable Object: container on the `durable_object` scheduling policy, heavy commands, snapshots, a browser tab per Bot |
 | `src/worker/backups.ts` | Streams each Bot's `bin` and the Chrome profile between the computer and the `FILES` R2 bucket as tar archives |
-| `src/worker/auth.ts` | Better Auth email codes and the API session check |
+| `src/worker/auth.ts` | Better Auth email codes, the `FLAREBOT_API_KEY` bearer check, and `requireApp` for routes a key cannot call |
+| `src/worker/openapi.ts` | `doc()` attaches a summary and schemas to a route, and `openApiDocument` builds `/api/openapi.json` from the routes that carry one |
 | `src/worker/push.ts` | Web Push: VAPID keys, payload encryption, send |
 | `src/worker/native-push.ts` | Phone push: APNs with an ES256 JWT, FCM HTTP v1 with a service account token |
 | `src/web/push.ts` | Notification permission, Web Push or native registration in the phone apps, opening a chat from a notification |
+| `src/web/factory/` | Experimental 3D view in three.js, loaded as its own chunk: `activity.ts` maps a Bot's state to a station, `world.ts` builds the sky, platform and stations, `bots.ts` moves the Bots, `scene.ts` owns the renderer, camera and label positions, `FactoryView.tsx` polls and draws the labels |
 | `src/web/mobile.ts` | Phone breakpoint hook and the visible-viewport height for the keyboard |
 | `public/` | PWA manifest, icons and service worker |
 | `migrations/` | D1 schema for Better Auth |

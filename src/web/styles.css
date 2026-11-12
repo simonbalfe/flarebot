@@ -22,6 +22,8 @@
   --color-fb-control-text: light-dark(#a4651b, #e6b271);
   --color-fb-action: light-dark(#c2670f, #f4b05a);
   --color-fb-action-text: light-dark(#ffffff, #1c1408);
+  --color-fb-factory-sky: #fbad41;
+  --color-fb-factory-ink: #7a3e0a;
 
   --color-kumo-canvas: var(--color-fb-pane);
   --color-kumo-base: var(--color-fb-pane);
@@ -115,6 +117,10 @@ body {
 
 @utility fb-continuous {
   corner-shape: squircle;
+}
+
+@utility fb-factory-tag {
+  text-shadow: 0 0 3px rgba(255, 255, 255, 0.9), 0 0 6px rgba(255, 255, 255, 0.7);
 }
 
 @keyframes fb-pulse {

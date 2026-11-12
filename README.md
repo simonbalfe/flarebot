@@ -45,6 +45,8 @@ Inspired by the UX of [Grok Bot](https://docs.x.ai/grok-bot/overview).
 | Push notifications when a Bot finishes, from the bell in the chat list | Web Push built, encryption and signing checked locally |
 | Native push on the phone apps through APNs and FCM | Built, not yet run: needs the APNs key and a Firebase project in Infisical |
 | Optional Langfuse traces for every Bot run, with each model turn and tool call nested, on when the `LANGFUSE_*` secrets are in Infisical | Built, checked against the self-hosted Langfuse |
+| Experimental 3D view on desktop: Bots at work on a factory platform in an orange cloud sky, from the Chats / 3D switch or `/?view=3d` | Built, tested locally |
+| HTTP API with a key and an OpenAPI spec at `/api/openapi.json`: Bots, threads, groups, projects, skills, CLIs, MCP servers, the computer and each Bot's browser tab | Built, new endpoints tested locally |
 | Voice | Planned |
 
 ## Quick start

@@ -50,7 +50,27 @@ export function createAuth(env: Env) {
   });
 }
 
+async function holdsApiKey(env: Env, authorization: string | undefined): Promise<boolean> {
+  const expected = env.FLAREBOT_API_KEY ?? "";
+  const given = authorization?.match(/^Bearer\s+(\S+)$/i)?.[1] ?? "";
+  if (expected === "" || given === "") return false;
+  const encoder = new TextEncoder();
+  const [left, right] = await Promise.all([crypto.subtle.digest("SHA-256", encoder.encode(given)), crypto.subtle.digest("SHA-256", encoder.encode(expected))]);
+  const expectedDigest = new Uint8Array(right);
+  return new Uint8Array(left).reduce((difference, byte, index) => difference | (byte ^ (expectedDigest[index] ?? 0)), 0) === 0;
+}
+
+export const requireApp = createMiddleware<AppEnv>(async (c, next) => {
+  if (c.get("apiKey") === true) throw new HTTPException(403, { message: "This action is only available in the app" });
+  await next();
+});
+
 export const requireSession = createMiddleware<AppEnv>(async (c, next) => {
+  if (await holdsApiKey(c.env, c.req.header("authorization"))) {
+    c.set("apiKey", true);
+    await next();
+    return;
+  }
   if (c.env.FLAREBOT_LOCAL_DEV === "1") {
     await next();
     return;

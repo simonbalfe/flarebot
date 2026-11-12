@@ -57,6 +57,9 @@ For one user over a 30-day month, from [Containers pricing](https://developers.c
 | Decision | Reason |
 | --- | --- |
 | Harness and files outside the container; the container only for Chrome and heavy work | Files, git and a shell run in the Bot's Durable Object, so most turns never start the computer |
+| The API uses one bearer key, and the OpenAPI spec is built from the routes | The app and outside callers share one set of routes, so nothing drifts. Mac pairing and per-Bot Mac access stay in the app, because a Bot can reach the API through the codemode gateway and must not grant itself the Mac |
+| 3D view in plain three.js, loaded with one `lazy` import | One dependency instead of three with react-three-fiber, the render loop stays outside React, and about 146 KB gzipped stays out of the main bundle for the PWA and phone apps |
+| 3D view reads the existing API in its first version | No Worker change. Later: an `activity` field reported by the `Bot` Durable Object so one `/api/bots` poll carries every Bot's station, then bloom, a dusk sky for dark mode and a group table |
 
 ## Next steps
 

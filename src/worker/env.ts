@@ -1,4 +1,4 @@
-export type AppEnv = { Bindings: Env };
+export type AppEnv = { Bindings: Env; Variables: { apiKey: boolean } };
 
 export const userName = "me";
 export const computerName = "me";

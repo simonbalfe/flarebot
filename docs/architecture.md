@@ -452,6 +452,32 @@ The Details panel lists the servers with a checkbox for this Bot, adds one with 
 - Streamable HTTP only, no stdio servers.
 - MCP tools are reached through the two generic tools rather than as one tool each.
 
+## 3D view
+
+`src/web/factory/` is an experimental desktop view of the same Bots, opened with the Chats / 3D switch in the header or `/?view=3d`. It only reads: it adds no API route and no Worker code.
+
+| Part | Behaviour |
+| --- | --- |
+| Loading | `App.tsx` loads `FactoryView` with `lazy`, so three.js is a separate chunk fetched the first time the view opens. This is the one dynamic import in the UI |
+| World | One platform in an orange cloud sky, drawn from boxes, spheres and canvas textures. No model or image files |
+| Camera | Orthographic. Drag orbits, the wheel zooms, panning is off |
+| Bots | One robot per Bot, in its avatar colours, standing at a station. A Bot glides to a new station when its activity changes. Clicking a robot or its label opens that Bot's chat |
+| Data | The Bot list comes from the existing `/api/bots` poll. Bots with `typing` set also have `GET /api/bots/:id` polled every 1.5 seconds, and the last transcript item picks the station |
+| Messages | A new `message_bot` item sends a packet from the sender to the recipient |
+| Reduced motion | With `prefers-reduced-motion`, Bots jump instead of gliding and the ambient animation stops |
+
+| Bot state | Station |
+| --- | --- |
+| `needsYou` | You |
+| Not `typing` | Home, on the open floor |
+| `typing`, with no tool running or text streaming | Model |
+| `bash`, `run_linux`, `publish_cli`, `screenshot`, `click`, `type_text`, `press_key`, `scroll`, `open_url` | Computer |
+| `mac_*` | Mac |
+| `pull_repo`, `push_repo` | Artifacts |
+| `list_skills`, `load_skill`, `save_skill`, `publish_skill` | Toolbox |
+| `mcp_list_tools`, `mcp_call` | MCP |
+| Any other tool | Model, labelled with the tool name |
+
 ## Known limits
 
 | Area | Limit |
@@ -465,6 +491,35 @@ The Details panel lists the servers with a checkbox for this Bot, adds one with 
 | Poll errors | A failed poll shows no error until that poll has been failing for 15 seconds while the app is visible. The timer restarts when the app returns to the foreground, because phones cancel requests in flight when an app is suspended |
 | Browser | Bots see and control only web pages. Chrome's own UI, its dialogs and other desktop apps aren't reachable by a Bot |
 | Browser speed | Browser actions run one at a time across all Bots, each starting a short `node` process |
+| API | One key with full control and no scopes. There is no route for a Bot's files yet |
+| 3D view | Desktop only. It reads a Bot's main chat, so work in a thread or a group shows as Model. A Bot stays at its last tool's station while the model writes the next tool call, until text streams or the next tool starts |
+
+## API
+
+Everything the app does goes through `/api/*`, and the same routes accept a key.
+
+| Part | Behaviour |
+| --- | --- |
+| Key | `Authorization: Bearer <FLAREBOT_API_KEY>`. The key is one secret in Infisical, compared in constant time. With no key set, only sessions work |
+| Spec | `GET /api/openapi.json` returns an OpenAPI 3.1 document. It needs the key or a session |
+| Source of the spec | `doc({ ... })` in `src/worker/index.ts` sits on each route, and `openApiDocument` in `src/worker/openapi.ts` reads the route table. Request bodies come from the same `zod` schemas the handlers parse with. A route with no `doc` is left out |
+| App only | `POST /api/mac/link/approve`, `DELETE /api/mac` and `PUT /api/bots/:id/mac` return 403 to a key, so a caller with the key cannot give a Bot the Mac or pair a new one |
+| Left out of the spec | Sign-in, push registration, the Mac daemon's routes and the noVNC proxy |
+| Replies | `POST .../messages` returns at once. Read the Bot or thread until `busy` is false |
+
+Routes added for callers that are not the app:
+
+| Route | Does |
+| --- | --- |
+| `POST /api/skills` with `{ markdown }` | Adds or replaces a shared skill from the text of its `SKILL.md`. The raw upload still works |
+| `PUT /api/clis/:name` with `{ script }` or `{ base64 }` | Adds or replaces a shared CLI. The raw upload still works |
+| `GET /api/skills/:name` | Returns a shared skill's `SKILL.md`, up to 28,000 bytes. It starts the computer |
+| `POST /api/bots/:id/memory` | Adds a memory item |
+| `GET /api/computer/tabs` | Lists each Bot's open tab with its URL and title. It never starts the computer |
+| `GET /api/bots/:id/tab` | Returns that Bot's tab, and a JPEG with `screenshot=1`. It never starts the computer |
+| `POST /api/bots/:id/tab` | Runs one browser action in the Bot's tab: `navigate`, `screenshot`, `click`, `type`, `key`, `scroll` or `show` |
+
+The codemode gateway reaches this API as `flarebot`, with the key and URL in Infisical `/gateway`.
 
 ## Sign-in
 
@@ -534,6 +589,7 @@ APNs only accepts HTTP/2. Deployed Workers reach it through Cloudflare's proxy, 
 | `CLAUDE_CODE_OAUTH_TOKEN` | Model calls on your Claude subscription, from `claude setup-token` |
 | `CODEMODE_API_KEY` | The built-in `codemode` MCP server, on by default for every Bot until unticked in Details |
 | `BETTER_AUTH_SECRET` | Signs sessions |
+| `FLAREBOT_API_KEY` | Optional. Bearer key for the [API](#api). Also stored in `/gateway` with `FLAREBOT_API_URL` for the codemode gateway |
 | `FLAREBOT_ALLOWED_EMAILS` | Comma-separated addresses that can sign in |
 | `FLAREBOT_MAIL_FROM` | Sender, on a domain enabled for Cloudflare Email Sending |
 | `FLAREBOT_DOMAIN` | Custom domain, also used for the app URL |

@@ -1,6 +1,6 @@
 import { Button, createKumoToastManager, Dialog, DropdownMenu, Input, Select, Sidebar, Toasty } from "@cloudflare/kumo";
 import { BellIcon, BellSlashIcon, CaretLeftIcon, CaretRightIcon, CheckIcon, CopyIcon, LockSimpleIcon, MagnifyingGlassIcon, MonitorIcon, PlusIcon, SignOutIcon, UploadSimpleIcon, UsersThreeIcon, XIcon } from "@phosphor-icons/react";
-import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { lazy, type ReactNode, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { api, type BotSummary, type BotView, type CliSummary, type ComputerStatus, type GroupSummary, isSignedIn, type MacStatus, type McpServerSummary, type OwnSkill, type PickerOption, type PoolKind, type SkillSummary, type ThreadSummary } from "./api";
 import { authClient } from "./auth";
 import { Avatar, botMentions } from "./Avatar";
@@ -26,6 +26,8 @@ const maxGroupBots = 6;
 const toasts = createKumoToastManager();
 const iconButton = "grid size-9 cursor-pointer place-items-center rounded-full text-fb-preview hover:bg-fb-active hover:text-fb-text md:size-7";
 const longPressMs = 450;
+const viewTab = "h-6 cursor-pointer rounded-full px-2.5";
+const FactoryView = lazy(() => import("./factory/FactoryView").then((module) => ({ default: module.FactoryView })));
 
 type Panel = "computer" | "details";
 
@@ -609,6 +611,7 @@ function Workspace() {
   const [renamingGroup, setRenamingGroup] = useState<GroupSummary | null>(null);
   const [renamingThread, setRenamingThread] = useState<ThreadSummary | null>(null);
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
+  const [factory, setFactory] = useState(() => new URLSearchParams(window.location.search).get("view") === "3d");
   const mobile = useIsMobile();
   const [mobileChat, setMobileChat] = useState(false);
   const panelRef = useRef<Panel | null>(null);
@@ -895,10 +898,12 @@ function Workspace() {
     currentGroupId,
     onOpen: (id) => {
       openBot(id);
+      setFactory(false);
       enterChat();
     },
     onOpenGroup: (id) => {
       openGroup(id);
+      setFactory(false);
       enterChat();
     },
     onNew: () => setOverlay("new"),
@@ -938,19 +943,23 @@ function Workspace() {
 
   const desktopHeader = (
     <header className="flex h-12 shrink-0 items-center gap-2 border-b-[0.5px] border-fb-line px-3">
-      {currentGroup === undefined ? null : (
+      {factory || currentGroup === undefined ? null : (
         <div className="flex min-w-0 items-center gap-2 py-1 pr-2.5 pl-1">
           <GroupAvatars memberIds={currentGroup.memberIds} bots={bots} />
           <span className="fb-body truncate font-semibold">{currentGroup.name}</span>
         </div>
       )}
-      {summary === undefined || currentGroup !== undefined ? null : (
+      {factory || summary === undefined || currentGroup !== undefined ? null : (
         <button type="button" onClick={() => togglePanel("details")} className="flex min-w-0 cursor-pointer items-center gap-2 rounded-full py-1 pr-2.5 pl-1 hover:bg-fb-active">
           <Avatar index={bots.indexOf(summary)} size={24} />
           <span className="fb-body truncate font-semibold">{summary.name}</span>
         </button>
       )}
-      <button type="button" aria-label="Computer" className={`ml-auto ${iconButton} ${panel === "computer" ? "bg-fb-active text-fb-text" : ""}`} onClick={() => togglePanel("computer")}><MonitorIcon size={16} /></button>
+      <div role="group" aria-label="View" className="fb-caption ml-auto flex h-7 shrink-0 items-center rounded-full bg-fb-field p-0.5 font-medium">
+        <button type="button" aria-pressed={!factory} className={`${viewTab} ${factory ? "text-fb-preview" : "bg-fb-me text-fb-me-text"}`} onClick={() => setFactory(false)}>Chats</button>
+        <button type="button" aria-pressed={factory} className={`${viewTab} ${factory ? "bg-fb-me text-fb-me-text" : "text-fb-preview"}`} onClick={() => setFactory(true)}>3D</button>
+      </div>
+      <button type="button" aria-label="Computer" className={`${iconButton} ${panel === "computer" ? "bg-fb-active text-fb-text" : ""}`} onClick={() => togglePanel("computer")}><MonitorIcon size={16} /></button>
     </header>
   );
 
@@ -1166,7 +1175,18 @@ function Workspace() {
       <div className="relative flex min-w-0 flex-1 overflow-hidden bg-fb-pane">
         <div className="flex min-w-0 flex-1 flex-col">
           {desktopHeader}
-          {chatBody}
+          {factory ? (
+            <Suspense fallback={<div className="flex-1 bg-fb-factory-sky" />}>
+              <FactoryView
+                bots={bots}
+                poll={poll}
+                onOpen={(id) => {
+                  openBot(id);
+                  setFactory(false);
+                }}
+              />
+            </Suspense>
+          ) : chatBody}
         </div>
         {panelView}
       </div>

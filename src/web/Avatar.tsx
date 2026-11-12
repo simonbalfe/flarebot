@@ -1,7 +1,7 @@
 import { CloudflareLogo } from "@cloudflare/kumo";
 import type { CSSProperties } from "react";
 
-const palette = [
+export const palette = [
   { main: "#ff5e1f", accent: "#ff9911" },
   { main: "#2fa88f", accent: "#6fd3bd" },
   { main: "#5b5ff0", accent: "#9395f7" },
@@ -10,12 +10,12 @@ const palette = [
   { main: "#e0528a", accent: "#f08fb5" },
 ];
 
-function colorsOf(index: number) {
+export function botColors(index: number): { main: string; accent: string } {
   return palette[index % palette.length] ?? { main: "#ff5e1f", accent: "#ff9911" };
 }
 
 export function colorOf(index: number): string {
-  return colorsOf(index).main;
+  return botColors(index).main;
 }
 
 export interface MentionOption {
@@ -28,7 +28,7 @@ export function botMentions(bots: { name: string }[]): MentionOption[] {
 }
 
 export function Avatar({ index, size = 32 }: { index: number; size?: number }) {
-  const { main, accent } = colorsOf(index);
+  const { main, accent } = botColors(index);
   const colors = { "--bot-main": main, "--bot-accent": accent } as CSSProperties;
   return (
     <span style={{ ...colors, width: size, height: size }} className="grid shrink-0 place-items-center">

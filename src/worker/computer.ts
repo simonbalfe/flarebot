@@ -43,6 +43,14 @@ const browserOutputSchema = z.object({
 
 export type BrowserResult = Omit<z.infer<typeof browserOutputSchema>, "targetId">;
 
+const tabListSchema = z.object({ tabs: z.array(z.object({ targetId: z.string(), url: z.string(), title: z.string() })) });
+
+export interface BotTab {
+  botId: string;
+  url: string;
+  title: string;
+}
+
 export class Computer extends DurableObject<Env> {}
 
 export class SharedComputer extends DurableObject<Env> {
@@ -86,6 +94,13 @@ export class SharedComputer extends DurableObject<Env> {
 
   browser(botId: string, action: BrowserAction): Promise<BrowserResult> {
     const run = this.#browserQueue.then(() => this.#runBrowserAction(botId, action));
+    this.#browserQueue = run.catch(() => undefined);
+    return run;
+  }
+
+  tabs(): Promise<BotTab[]> {
+    if (!this.#container().running) return Promise.resolve([]);
+    const run = this.#browserQueue.then(() => this.#listTabs());
     this.#browserQueue = run.catch(() => undefined);
     return run;
   }
@@ -143,14 +158,25 @@ export class SharedComputer extends DurableObject<Env> {
   }
 
   async #runBrowserAction(botId: string, action: BrowserAction): Promise<BrowserResult> {
-    const request = { targetId: this.#tabs()[botId] ?? null, action };
-    const stdout = await this.#runWithInput(
-      ["timeout", "--kill-after=5", String(browserActionSeconds), "node", "--experimental-websocket", "--input-type=module", "-e", browserTabScript],
-      new TextEncoder().encode(JSON.stringify(request)),
-    );
+    const stdout = await this.#runBrowserScript({ targetId: this.#tabs()[botId] ?? null, action });
     const { targetId, ...result } = browserOutputSchema.parse(JSON.parse(stdout));
     this.ctx.storage.kv.put("tabs", { ...this.#tabs(), [botId]: targetId });
     return result;
+  }
+
+  async #listTabs(): Promise<BotTab[]> {
+    const open = tabListSchema.parse(JSON.parse(await this.#runBrowserScript({ list: true }))).tabs;
+    return Object.entries(this.#tabs()).flatMap(([botId, targetId]) => {
+      const tab = open.find((candidate) => candidate.targetId === targetId);
+      return tab === undefined ? [] : [{ botId, url: tab.url, title: tab.title }];
+    });
+  }
+
+  #runBrowserScript(request: unknown): Promise<string> {
+    return this.#runWithInput(
+      ["timeout", "--kill-after=5", String(browserActionSeconds), "node", "--experimental-websocket", "--input-type=module", "-e", browserTabScript],
+      new TextEncoder().encode(JSON.stringify(request)),
+    );
   }
 
   async #runWithInput(argv: string[], input: Uint8Array): Promise<string> {

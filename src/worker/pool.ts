@@ -198,6 +198,16 @@ export async function unpackUpload(env: Env, contents: Uint8Array): Promise<{ so
   return { source: unpacked.stdout.trim().split("\n").at(-1) ?? `${staging}/skill`, cleanup };
 }
 
+const maxSkillReadBytes = 28_000;
+const readSkillScript = 'file="$1/SKILL.md"; if [ ! -f "$file" ]; then echo "No SKILL.md" >&2; exit 1; fi; head -c "$2" "$file"';
+
+export async function readSkill(env: Env, name: string): Promise<{ ok: true; markdown: string } | { ok: false; error: string }> {
+  const ready = await ensurePool(env);
+  if (!ready.ok) return ready;
+  const result = await computer(env).exec(["bash", "-c", readSkillScript, "read", itemDir("skills", name), String(maxSkillReadBytes)], copyTimeoutSeconds);
+  return result.exitCode === 0 ? { ok: true, markdown: result.stdout } : { ok: false, error: result.stderr.trim() || "Could not read the skill" };
+}
+
 export async function removeItem(env: Env, kind: PoolKind, name: string): Promise<RepoResult> {
   const ready = await ensurePool(env);
   if (!ready.ok) return ready;

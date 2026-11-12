@@ -7,6 +7,7 @@ interface Env {
   FLAREBOT_ALLOWED_EMAILS: string;
   FLAREBOT_MAIL_FROM: string;
   FLAREBOT_LOCAL_DEV?: string;
+  FLAREBOT_API_KEY?: string;
   LANGFUSE_HOST?: string;
   LANGFUSE_PUBLIC_KEY?: string;
   LANGFUSE_SECRET_KEY?: string;

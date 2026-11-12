@@ -164,6 +164,13 @@ async function perform(page, action) {
 const request = await readInput();
 const version = await (await fetch(`${debugUrl}/json/version`)).json();
 const cdp = await connect(version.webSocketDebuggerUrl);
+if (request.list === true) {
+  const { targetInfos } = await cdp.call("Target.getTargets");
+  const tabs = targetInfos.filter((target) => target.type === "page").map((target) => ({ targetId: target.targetId, url: target.url, title: target.title }));
+  console.log(JSON.stringify({ tabs }));
+  cdp.close();
+  process.exit(0);
+}
 const targetId = await ensureTab(cdp, request.targetId);
 await cdp.call("Target.activateTarget", { targetId });
 const { sessionId } = await cdp.call("Target.attachToTarget", { targetId, flatten: true });
