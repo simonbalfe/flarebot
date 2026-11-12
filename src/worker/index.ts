@@ -8,11 +8,13 @@ import modelServerPackage from "../../model-container/package.json?raw";
 import modelServerSource from "../../model-container/server.ts?raw";
 import { macInstallScript } from "./mac-install";
 import { cliNamePattern } from "./pool";
+import { pushDeviceSchema } from "./native-push";
 import { pushSubscriptionSchema } from "./push";
 import { type AppEnv, computerName, effortLabels, efforts, macName, modelLabels, models, userName } from "./env";
 
+export { WorkspaceServiceProxy } from "@cloudflare/computer";
 export { Bot } from "./bot";
-export { Computer } from "./computer";
+export { Computer, SharedComputer } from "./computer";
 export { Group } from "./group";
 export { Mac } from "./mac";
 export { ModelContainer } from "./model-container";
@@ -59,6 +61,7 @@ const fileQuery = z.object({
   executable: z.enum(["0", "1"]).default("0"),
 });
 const pushUnsubscribeBody = z.object({ endpoint: z.url() });
+const pushDeviceRemoveBody = pushDeviceSchema.pick({ token: true });
 const vncPrefix = "/api/computer/vnc";
 
 const app = new Hono<AppEnv>();
@@ -323,6 +326,18 @@ app.delete("/api/push/subscriptions", async (c) => {
   return c.body(null, 204);
 });
 
+app.post("/api/push/devices", async (c) => {
+  const body = pushDeviceSchema.parse(await c.req.json());
+  await user(c.env).addPushDevice(body);
+  return c.body(null, 204);
+});
+
+app.delete("/api/push/devices", async (c) => {
+  const body = pushDeviceRemoveBody.parse(await c.req.json());
+  await user(c.env).removePushDevice(body.token);
+  return c.body(null, 204);
+});
+
 app.get("/api/mcp", async (c) => c.json({ servers: await user(c.env).mcpServers() }));
 
 app.post("/api/mcp", async (c) => {
@@ -418,7 +433,7 @@ app.post("/api/computer/start", async (c) => c.json(await computer(c.env).start(
 
 app.post("/api/computer/stop", async (c) => c.json(await computer(c.env).stop()));
 
-app.post("/api/computer/reset", async (c) => c.json(await computer(c.env).reset()));
+app.post("/api/computer/reset", async (c) => c.json(await computer(c.env).reset(c.req.query("wipe") === "true")));
 
 app.post("/api/computer/cookies", async (c) => {
   const body = cookiesBody.parse(await c.req.json());

@@ -27,7 +27,8 @@ Run both checks after every code change. Docker or OrbStack must be running for 
 | `src/worker/group.ts` | `Group` Durable Object: group transcript and `@` mention routing |
 | `src/worker/mentions.ts` | Matches `@` mentions and plain Bot names in group messages |
 | `src/worker/router.ts` | Claude call that picks Bots for a group message with no name |
-| `src/worker/repos.ts` | Each Bot's folder repo in Artifacts: create, clone into the folder, commit, pull, push, with short-lived tokens |
+| `src/worker/files.ts` | Each Bot's files in its own Durable Object through `@cloudflare/computer`: the just-bash shell backend, git on Artifacts with a host fetch wrapper that adds short-lived tokens, copying a folder to and from the computer for `run_linux`, skill scanning |
+| `src/worker/repos.ts` | The computer-side clone scripts used by `run_linux` and the pool, including `mirrorClone` |
 | `src/worker/pool.ts` | Shared pool of CLIs and Agent Skills: the `toolbox` Artifacts repo cloned to `/workspace/toolbox`, publish, validate and remove |
 | `src/worker/mac.ts` | `Mac` Durable Object: device link, the daemon's WebSocket, request and result routing |
 | `src/worker/mac-install.ts` | `install.sh` served at `/mac/install.sh`: Bun, the daemon and the LaunchAgent |
@@ -35,18 +36,21 @@ Run both checks after every code change. Docker or OrbStack must be running for 
 | `src/worker/mac-tools.ts` | `mac_run`, `mac_read`, `mac_write`, `mac_list`, `mac_open` Bot tools and their prompt line |
 | `scripts/flarebot-local.ts` | Mac daemon: folder picker, device link, allowed folders, approval dialog, runs the actions. Also served to Macs at `/mac/flarebot-local.ts` |
 | `src/worker/mcp.ts` | Remote MCP servers through `@earendil-works/pi-mcp`: list tools, call a tool |
-| `src/worker/computer.ts` | `Computer` Durable Object: container, commands, snapshots, a browser tab per Bot |
+| `src/worker/computer.ts` | `SharedComputer` Durable Object: container on the `durable_object` scheduling policy, heavy commands, snapshots, a browser tab per Bot |
+| `src/worker/backups.ts` | Streams each Bot's `bin` and the Chrome profile between the computer and the `FILES` R2 bucket as tar archives |
 | `src/worker/auth.ts` | Better Auth email codes and the API session check |
 | `src/worker/push.ts` | Web Push: VAPID keys, payload encryption, send |
-| `src/web/push.ts` | Notification permission, subscribe and unsubscribe, opening a chat from a notification |
+| `src/worker/native-push.ts` | Phone push: APNs with an ES256 JWT, FCM HTTP v1 with a service account token |
+| `src/web/push.ts` | Notification permission, Web Push or native registration in the phone apps, opening a chat from a notification |
 | `src/web/mobile.ts` | Phone breakpoint hook and the visible-viewport height for the keyboard |
 | `public/` | PWA manifest, icons and service worker |
 | `migrations/` | D1 schema for Better Auth |
 | `src/web/` | React UI |
 | `src/web/styles.css` | Design tokens and Kumo theme overrides |
 | `computer/` | Desktop image, cookie loader, and `browser-tab.mjs` (CDP tab control, sent by the Worker at run time) |
-| `src-tauri/` | Tauri 2 desktop shell around the same web UI: `tauri.conf.json`, a Rust entry point that starts and stops the bundled `flarebot-local` daemon and hides the window on close, and icons. Crate and CLI pins are exact |
-| `scripts/` | Local dev, deploy, cookie import, copying files to the computer, and `tauri.sh` (`tauri:dev` and `tauri:build`, which both point the window and the daemon at the deployed URL) |
+| `src-tauri/` | Tauri 2 shell around the same web UI for the Mac only: `tauri.conf.json` plus the `tauri.macos.conf.json` override, `src/lib.rs` (entry point), `src/desktop.rs` (starts and stops the bundled `flarebot-local` daemon, hides the window on close), and icons. Crate and CLI pins are exact |
+| `capacitor.config.ts`, `android/`, `ios/` | Capacitor shells for the Android and iPhone apps, loading the deployed URL. The native projects are committed and edited by hand; `cap sync` only rewrites the gitignored web copy and config |
+| `scripts/` | Local dev, deploy, cookie import, copying files to the computer, `tauri.sh` (`tauri.sh dev|build`, which points the Mac window and daemon at the deployed URL), `cap.sh` (web build and `cap sync` with the deployed URL, then any `cap` command), and `android-release.sh` (signed release APK, key from Infisical) |
 
 ## Rules
 

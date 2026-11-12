@@ -1,3 +1,4 @@
+import type { WorkspaceStub } from "@cloudflare/computer";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import { createModels } from "@earendil-works/pi-ai/models";
@@ -6,13 +7,14 @@ import { openDurableObjectSqliteStorage } from "@earendil-works/pi-durable/stora
 import { DurableObject } from "cloudflare:workers";
 import { z } from "zod";
 import { claudeProvider, claudeProviderId, claudeToken, claudeTransport } from "./claude";
-import { claudeModelId, computerName, defaultEffort, type Effort, userName } from "./env";
-import { recordTurns } from "./langfuse";
-import { type CliSummary, type OwnSkill, ownSkillsDir, type PoolKind, type SkillSummary, scanSkills } from "./pool";
+import { claudeModelId, defaultEffort, type Effort, userName } from "./env";
+import { botAuthor, createFiles, type Files, localSave, scanLocalSkills, sendToComputer } from "./files";
+import { createTracer } from "./langfuse";
+import { type CliSummary, type OwnSkill, ownSkillsDir, type PoolKind, type SkillSummary } from "./pool";
 import type { PoolResult } from "./user";
 import { codemodeServer, type McpServerSummary, serverSummary } from "./mcp";
 import { type PushMessage, pushBody } from "./push";
-import { cloneState, commitAll, defaultRepoName, errorMessage, pushClone, type RepoResult } from "./repos";
+import { defaultRepoName, errorMessage, type RepoResult } from "./repos";
 import { botExtension, type BotProfile, maxBotHops, type Takeover } from "./tools";
 import { botReply, toTranscriptView, type TranscriptView } from "./view";
 
@@ -140,6 +142,7 @@ export interface BotView extends TranscriptView {
 
 export class Bot extends DurableObject<Env> {
   #harness!: Harness;
+  #files: Files;
   #root!: Conversation;
   #wasActive = false;
   #groupConversations = new Map<string, Promise<Conversation>>();
@@ -160,14 +163,15 @@ export class Bot extends DurableObject<Env> {
     for (const column of ["thread_id", "reply_thread_id"]) {
       if (!mailboxColumns.includes(column)) ctx.storage.sql.exec(`ALTER TABLE flarebot_mailbox ADD COLUMN ${column} TEXT`);
     }
+    this.#files = createFiles(ctx, env, "BOT", () => this.#allowedRepos());
     void ctx.blockConcurrencyWhile(async () => {
       const fallback = Date.now() + heartbeatMs;
       const alarm = await ctx.storage.getAlarm();
       if (alarm === null || alarm > fallback) await ctx.storage.setAlarm(fallback);
 
       const models = createModels({ credentials: new InMemoryCredentialStore() });
-      const recordTurn = recordTurns(env, (work) => ctx.waitUntil(work), () => ({ kind: "bot", id: this.#profile().id, name: this.#profile().name }));
-      models.setProvider(claudeProvider({ session: () => ({ send: claudeTransport(env, this.#profile().id), id: this.#profile().id }), token: claudeToken(env), recordTurn }, () => this.#profile().effort));
+      const tracer = createTracer(env, (work) => ctx.waitUntil(work), () => ({ kind: "bot", id: this.#profile().id, name: this.#profile().name }));
+      models.setProvider(claudeProvider({ session: () => ({ send: claudeTransport(env, this.#profile().id), id: this.#profile().id }), token: claudeToken(env), recordTurn: tracer.recordTurn }, () => this.#profile().effort));
 
       const registry = createRegistry();
       registry.install(
@@ -177,6 +181,7 @@ export class Bot extends DurableObject<Env> {
           setMemory: (items) => ctx.storage.kv.put("memory", items),
           setTakeover: (takeover) => ctx.storage.kv.put("takeover", takeover),
           workspace: (conversationId) => this.#workspaceFor(conversationId),
+          files: () => this.#files,
           ownRepo: () => this.#repoName(),
           mcpServers: () => this.#mcpServers(),
           ticked: (kind) => this.#ticked(kind),
@@ -196,7 +201,7 @@ export class Bot extends DurableObject<Env> {
             const thread = this.#storedThreads().find((candidate) => candidate.conversationId === conversationId);
             return thread === undefined ? null : summaryOf(thread);
           },
-        }),
+        }, tracer.recordTool),
       );
 
       this.#harness = await Harness.open(
@@ -226,6 +231,11 @@ export class Bot extends DurableObject<Env> {
     this.#queueGroupSettle();
     this.#queueReplySettle();
     this.#queueDrain();
+  }
+
+  async __getWorkspaceStub(): Promise<WorkspaceStub> {
+    await this.#files.ready();
+    return this.#files.stub();
   }
 
   async init(profile: BotProfile): Promise<void> {
@@ -322,14 +332,15 @@ export class Bot extends DurableObject<Env> {
   }
 
   async ownSkills(): Promise<OwnSkill[]> {
-    if (!(await this.env.COMPUTER.getByName(computerName).status()).running) return this.#ownSkills();
-    const skills = await scanSkills(this.env, ownSkillsDir(this.#profile().id));
+    const skills = await scanLocalSkills(this.#files, ownSkillsDir(this.#profile().id));
     this.ctx.storage.kv.put("ownSkills", skills);
     return skills;
   }
 
   async publishOwnSkill(name: string): Promise<PoolResult> {
     if (!this.#ownSkills().some((skill) => skill.name === name)) return { ok: false, error: `No skill named ${name} in this Bot's folder` };
+    const synced = await sendToComputer(this.#files, this.env, this.#profile(), this.#workspace());
+    if (!synced.ok) return { ok: false, error: synced.error };
     const user = this.env.USER.getByName(userName);
     const result = await user.publishSkill(this.#profile().id, `${ownSkillsDir(this.#profile().id)}/${name}`);
     if (!result.ok) return result;
@@ -527,17 +538,15 @@ export class Bot extends DurableObject<Env> {
 
   async #autoSave(workspace: Workspace): Promise<RepoResult> {
     try {
-      const state = await cloneState(this.env, workspace.path);
-      if (!state.exists) return { ok: true, message: "Nothing cloned." };
-      if (state.dirty) {
-        const committed = await commitAll(this.env, workspace.path, `flarebot: ${this.#profile().name} auto-save`);
-        if (!committed.ok) return committed;
-      }
-      if (!state.dirty && state.unpushed === 0) return { ok: true, message: "Already saved." };
-      return await pushClone(this.env, workspace.repo, workspace.path);
+      const profile = this.#profile();
+      return await localSave(this.#files, workspace.path, `flarebot: ${profile.name} auto-save`, botAuthor(profile));
     } catch (error) {
       return { ok: false, error: errorMessage(error) };
     }
+  }
+
+  #allowedRepos(): string[] {
+    return [...new Set(this.#activeWorkspaces().map((workspace) => workspace.repo))];
   }
 
   #queueAutoSave(): void {

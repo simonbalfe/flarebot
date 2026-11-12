@@ -10,7 +10,7 @@ import { useIsMobile } from "./mobile";
 import { ComputerPanel, TakeOver } from "./Computer";
 import { formatListTime } from "./format";
 import { GroupAvatars, GroupPane } from "./Group";
-import { currentPushSubscription, disablePush, enablePush, onNotificationOpen, pushSupported } from "./push";
+import { disablePush, enablePush, onNotificationOpen, pushSupported, restorePush } from "./push";
 import "./theme";
 import { SignIn } from "./SignIn";
 import { Transcript } from "./Transcript";
@@ -121,7 +121,7 @@ function PushToggle() {
   const [enabled, setEnabled] = useState<boolean | null>(null);
   useEffect(() => {
     if (!pushSupported()) return;
-    void currentPushSubscription().then((subscription) => setEnabled(subscription !== null && Notification.permission === "granted"));
+    void restorePush().then(setEnabled, () => setEnabled(false));
   }, []);
   if (enabled === null) return null;
   const toggle = async () => {
@@ -445,6 +445,17 @@ function viewKeyOf(botId: string, threadId: string | null): string {
   return `${botId}:${threadId ?? "main"}`;
 }
 
+interface PendingMessage {
+  key: string;
+  viewKey: string;
+  text: string;
+  baseline: number;
+}
+
+function sentCount(view: BotView, text: string): number {
+  return view.items.filter((item) => item.kind === "user" && item.text === text).length;
+}
+
 function ThreadBar({ threads, projects, current, onOpen, onNew, onRename, onClose }: { threads: ThreadSummary[]; projects: string[]; current: string | null; onOpen: (id: string | null) => void; onNew: (project: string | null) => void; onRename: (thread: ThreadSummary) => void; onClose: (id: string) => void }) {
   const tab = "fb-callout flex h-7 max-w-[220px] shrink-0 cursor-pointer items-center gap-1 rounded-full px-3";
   return (
@@ -588,7 +599,9 @@ function Workspace() {
   const [ownSkills, setOwnSkills] = useState<OwnSkill[]>([]);
   const [macStatus, setMacStatus] = useState<MacStatus | null>(null);
   const [projects, setProjects] = useState<string[]>([]);
-  const [pending, setPending] = useState<string | null>(null);
+  const [pending, setPending] = useState<PendingMessage[]>([]);
+  const requestedView = useRef(0);
+  const appliedView = useRef(0);
   const [panel, setPanel] = useState<Panel | null>(null);
   const [computer, setComputer] = useState<ComputerStatus | null>(null);
   const [overlay, setOverlay] = useState<"take" | "new" | "group" | null>(null);
@@ -688,8 +701,10 @@ function Workspace() {
   }, [poll]);
 
   const loadView = useCallback(async (id: string, thread: string | null) => {
+    const request = ++requestedView.current;
     const result = await poll("view", () => (thread === null ? api.bot(id) : api.thread(id, thread)));
-    if (result === undefined) return;
+    if (result === undefined || request < appliedView.current) return;
+    appliedView.current = request;
     setView(result);
     setViewKey(viewKeyOf(id, thread));
   }, [poll]);
@@ -841,13 +856,19 @@ function Workspace() {
     if (currentGroupId === null && currentId !== null) void guard(() => api.showTab(currentId));
   };
 
-  const send = async (text: string) => {
-    if (currentId === null) return;
-    setPending(text);
-    await guard(() => (threadId === null ? api.send(currentId, text) : api.sendThread(currentId, threadId, text)));
-    await loadView(currentId, threadId);
-    setPending(null);
+  const send = async (text: string): Promise<boolean> => {
+    if (currentId === null) return false;
+    const message: PendingMessage = { key: crypto.randomUUID(), viewKey: viewKeyOf(currentId, threadId), text, baseline: shown === null ? 0 : sentCount(shown, text) };
+    setPending((current) => [...current, message]);
+    const sent = await guard(async () => {
+      await (threadId === null ? api.send(currentId, text) : api.sendThread(currentId, threadId, text));
+      return true;
+    });
+    if (sent === true) await loadView(currentId, threadId);
+    setPending((current) => current.filter((item) => item.key !== message.key));
+    return sent === true;
   };
+  const shownPending = shown === null || currentId === null ? [] : pending.filter((item) => item.viewKey === viewKeyOf(currentId, threadId) && sentCount(shown, item.text) <= item.baseline);
 
   const togglePanel = (next: Panel) => {
     if (panel === next) {
@@ -939,7 +960,7 @@ function Workspace() {
         {summary === undefined ? null : (
           <ThreadBar threads={shown?.threads ?? view?.threads ?? []} projects={projects} current={threadId} onOpen={setThreadId} onNew={(project) => void newThread(project)} onRename={setRenamingThread} onClose={(id) => void closeThread(id)} />
         )}
-        {shown === null ? <div className="flex-1" /> : <Transcript view={shown} bots={bots} pending={pending} onTakeOver={openComputer} />}
+        {shown === null ? <div className="flex-1" /> : <Transcript view={shown} bots={bots} pending={shownPending} onTakeOver={openComputer} />}
         {summary === undefined ? null : (
           <Composer
             key={`${summary.id}:${threadId ?? "main"}`}
@@ -947,7 +968,7 @@ function Workspace() {
             busy={busy}
             autoFocus={!mobile}
             mentions={botMentions(bots).filter((mention) => mention.name !== summary.name)}
-            onSend={(text) => void send(text)}
+            onSend={send}
             onStop={() => currentId !== null && void guard(() => (threadId === null ? api.stop(currentId) : api.stopThread(currentId, threadId)))}
           />
         )}

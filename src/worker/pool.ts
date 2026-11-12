@@ -17,7 +17,7 @@ export const cliNamePattern = /^[a-z0-9][a-z0-9._-]{0,39}$/;
 export const skillNamePattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 export const maxSkillNameChars = 64;
 export const poolPath = "/workspace/toolbox";
-const poolRepo = "toolbox";
+export const poolRepo = "toolbox";
 const poolAuthor = { id: "toolbox", name: "flarebot" };
 const copyTimeoutSeconds = 60;
 

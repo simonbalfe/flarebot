@@ -18,6 +18,8 @@
   },
   "send_email": [{ "name": "EMAIL" }],
   "artifacts": [{ "binding": "ARTIFACTS", "namespace": "flarebot", "remote": true }],
+  "worker_loaders": [{ "binding": "LOADER" }],
+  "r2_buckets": [{ "binding": "FILES", "bucket_name": "flarebot-files" }],
   "d1_databases": [
     {
       "binding": "AUTH_DB",
@@ -28,10 +30,10 @@
   ],
   "containers": [
     {
-      "class_name": "Computer",
-      "image": "./computer/Dockerfile",
-      "instance_type": "standard-2",
-      "max_instances": 2
+      "name": "flarebot-shared-computer",
+      "class_name": "SharedComputer",
+      "scheduling_policy": "durable_object",
+      "images": { "desktop": { "dockerfile": "./computer/Dockerfile" } }
     },
     {
       "class_name": "ModelContainer",
@@ -44,7 +46,7 @@
     "bindings": [
       { "name": "USER", "class_name": "User" },
       { "name": "BOT", "class_name": "Bot" },
-      { "name": "COMPUTER", "class_name": "Computer" },
+      { "name": "COMPUTER", "class_name": "SharedComputer" },
       { "name": "GROUP", "class_name": "Group" },
       { "name": "MAC", "class_name": "Mac" },
       { "name": "MODELS", "class_name": "ModelContainer" }
@@ -54,6 +56,7 @@
     { "tag": "v1", "new_sqlite_classes": ["User", "Bot", "Computer"] },
     { "tag": "v2", "new_sqlite_classes": ["Group"] },
     { "tag": "v3", "new_sqlite_classes": ["Mac"] },
-    { "tag": "v4", "new_sqlite_classes": ["ModelContainer"] }
+    { "tag": "v4", "new_sqlite_classes": ["ModelContainer"] },
+    { "tag": "v5", "new_sqlite_classes": ["SharedComputer"] }
   ]
 }

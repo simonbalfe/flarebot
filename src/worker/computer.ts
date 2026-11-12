@@ -1,7 +1,11 @@
 import { DurableObject } from "cloudflare:workers";
 import { z } from "zod";
 import browserTabScript from "../../computer/browser-tab.mjs?raw";
+import { backupComputer, chromeBackup, deleteBackups, restoreComputer, restoredMarker } from "./backups";
+import { errorMessage } from "./repos";
 
+const imageName = "desktop";
+const instanceType = "standard-2";
 const idleMs = 10 * 60 * 1000;
 const idleCheckMs = 60 * 1000;
 const inactivitySafetyMs = 60 * 60 * 1000;
@@ -39,7 +43,9 @@ const browserOutputSchema = z.object({
 
 export type BrowserResult = Omit<z.infer<typeof browserOutputSchema>, "targetId">;
 
-export class Computer extends DurableObject<Env> {
+export class Computer extends DurableObject<Env> {}
+
+export class SharedComputer extends DurableObject<Env> {
   #browserQueue: Promise<unknown> = Promise.resolve();
 
   status(): ComputerStatus {
@@ -58,11 +64,13 @@ export class Computer extends DurableObject<Env> {
     return { running: false };
   }
 
-  async reset(): Promise<ComputerStatus> {
+  async reset(wipe: boolean): Promise<ComputerStatus> {
     const container = this.#container();
     if (container.running) await container.destroy();
     this.ctx.storage.kv.delete("snapshot");
     this.ctx.storage.kv.delete("tabs");
+    this.ctx.storage.kv.delete("chromeRestoreFailed");
+    if (wipe) await deleteBackups(this.env.FILES);
     return { running: false };
   }
 
@@ -164,6 +172,7 @@ export class Computer extends DurableObject<Env> {
     if (!container.running) return;
     const quit = await container.exec(["bash", "-c", `pkill -TERM chromium; sleep ${browserQuitSeconds}`]);
     await quit.output();
+    await backupComputer(container, this.env.FILES, this.ctx.storage.kv.get<boolean>("chromeRestoreFailed") !== true);
     const snapshot = await container.snapshotContainer();
     this.ctx.storage.kv.put("snapshot", snapshot);
     this.ctx.storage.kv.delete("tabs");
@@ -171,9 +180,37 @@ export class Computer extends DurableObject<Env> {
     await this.ctx.storage.deleteAlarm();
   }
 
-  #boot(container: Container): void {
+  async #boot(container: Container): Promise<void> {
     const snapshot = this.ctx.storage.kv.get<ContainerSnapshot>("snapshot");
-    container.start(snapshot === undefined ? { enableInternet: true } : { enableInternet: true, containerSnapshot: { id: snapshot.id } });
+    if (snapshot !== undefined) {
+      try {
+        container.start({ containerSnapshot: { id: snapshot.id }, instance: instanceType, enableInternet: true });
+        await container.setInactivityTimeout(inactivitySafetyMs);
+        if (await this.#waitUntilReady(container)) return;
+        console.error(JSON.stringify({ event: "snapshot_restore_failed", snapshot: snapshot.id, error: "not ready in time" }));
+      } catch (error) {
+        console.error(JSON.stringify({ event: "snapshot_restore_failed", snapshot: snapshot.id, error: errorMessage(error) }));
+      }
+      if (container.running) await container.destroy();
+      this.ctx.storage.kv.delete("snapshot");
+    }
+    await this.#bootFresh(container);
+  }
+
+  async #bootFresh(container: Container): Promise<void> {
+    const image = container.images[imageName];
+    if (image === undefined) throw new Error(`The ${imageName} image is not configured`);
+    container.start({ image, instance: instanceType, enableInternet: true, env: { FLAREBOT_RESTORE: "1" } });
+    await container.setInactivityTimeout(inactivitySafetyMs);
+    if (!(await this.#waitUntilReady(container))) throw new Error("The computer did not start in time");
+    try {
+      const failed = await restoreComputer(container, this.env.FILES);
+      if (failed.includes(chromeBackup.key)) this.ctx.storage.kv.put("chromeRestoreFailed", true);
+      else this.ctx.storage.kv.delete("chromeRestoreFailed");
+    } finally {
+      const marker = await container.exec(["touch", restoredMarker]);
+      await marker.output();
+    }
   }
 
   async #waitUntilReady(container: Container): Promise<boolean> {
@@ -182,16 +219,15 @@ export class Computer extends DurableObject<Env> {
         const response = await container.getTcpPort(vncPort).fetch("http://computer/vnc.html");
         await response.body?.cancel();
         if (response.ok) return true;
-      } catch {
-        await scheduler.wait(readyDelayMs);
-      }
+      } catch {}
+      await scheduler.wait(readyDelayMs);
     }
     return false;
   }
 
   async #ensureReady(): Promise<Container> {
     const container = this.#container();
-    if (!container.running) this.#boot(container);
+    if (!container.running) await this.#boot(container);
     await container.setInactivityTimeout(inactivitySafetyMs);
     if (!(await this.#waitUntilReady(container))) throw new Error("The computer did not start in time");
     this.#touch();

@@ -125,7 +125,7 @@ body {
 
 @layer components {
   .fb-bubble {
-    @apply fb-body fb-continuous w-fit max-w-[min(76%,720px)] rounded-[26px] px-[14px] py-2;
+    @apply fb-body fb-continuous w-fit max-w-[min(76%,720px)] rounded-[26px] px-[14px] py-2 max-md:max-w-[92%];
     overflow-wrap: anywhere;
   }
 
@@ -196,6 +196,13 @@ body {
 
   .fb-prose th,
   .fb-prose td {
-    @apply border border-fb-line px-2 py-1 text-left;
+    @apply min-w-24 border border-fb-line px-2 py-1 text-left align-top;
+    overflow-wrap: normal;
+    word-break: normal;
+  }
+
+  .fb-prose td code,
+  .fb-prose th code {
+    @apply whitespace-nowrap;
   }
 }

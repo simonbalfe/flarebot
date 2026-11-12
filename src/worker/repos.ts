@@ -66,6 +66,19 @@ git -C "$path" remote set-url origin "$remote"
 git -C "$path" push -u origin HEAD 2>&1
 `;
 
+const mirrorScript = `
+set -e
+path="$1"; remote="$2"
+git -C "$path" remote set-url origin "$remote"
+git -C "$path" fetch --prune origin
+branch="$(git -C "$path" symbolic-ref --short HEAD)"
+if git -C "$path" rev-parse -q --verify "refs/remotes/origin/$branch" >/dev/null; then
+  git -C "$path" reset -q --hard "origin/$branch"
+  git -C "$path" branch -q -u "origin/$branch" "$branch"
+fi
+git -C "$path" status --short --branch
+`;
+
 const stateScript = `
 path="$1"
 if [ ! -d "$path/.git" ]; then echo '{"exists":false,"branch":"","dirty":false,"unpushed":0}'; exit 0; fi
@@ -128,7 +141,7 @@ export function defaultRepoName(bot: RepoBot): string {
   return `${slug}-${bot.id.slice(0, 8)}`;
 }
 
-async function ensureRepo(env: Env, name: string, description: string): Promise<RepoResult> {
+export async function ensureRepo(env: Env, name: string, description: string): Promise<RepoResult> {
   if (await repoExists(env, name)) return { ok: true, message: name };
   const created = await createRepo(env, name, description);
   if (created.ok || (await repoExists(env, name))) return { ok: true, message: name };
@@ -162,6 +175,10 @@ export async function projectExists(env: Env, name: string): Promise<boolean> {
 
 export function pullClone(env: Env, name: string, path: string): Promise<RepoResult> {
   return runGit(env, name, "read", pullScript, (remote) => [path, remote]);
+}
+
+export function mirrorClone(env: Env, name: string, path: string): Promise<RepoResult> {
+  return runGit(env, name, "read", mirrorScript, (remote) => [path, remote]);
 }
 
 export function pushClone(env: Env, name: string, path: string): Promise<RepoResult> {

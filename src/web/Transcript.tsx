@@ -124,17 +124,17 @@ export function Thinking({ index }: { index: number }) {
   );
 }
 
-export function Transcript({ view, bots, pending, onTakeOver }: { view: BotView; bots: BotSummary[]; pending: string | null; onTakeOver: () => void }) {
+export function Transcript({ view, bots, pending, onTakeOver }: { view: BotView; bots: BotSummary[]; pending: { key: string; text: string }[]; onTakeOver: () => void }) {
   const bottom = useRef<HTMLDivElement>(null);
   const rows = groupTools(view.items);
   const botIndex = Math.max(bots.findIndex((bot) => bot.id === view.profile.id), 0);
 
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: "end" });
-  }, [rows.length, view.partial, pending, view.takeover, view.busy]);
+  }, [rows.length, view.partial, pending.length, view.takeover, view.busy]);
 
   let previousAt = 0;
-  const empty = rows.length === 0 && pending === null && !view.busy;
+  const empty = rows.length === 0 && pending.length === 0 && !view.busy;
   return (
     <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-width:none]">
       <div className="flex min-h-full w-full flex-col gap-1.5 px-3 py-4 md:px-5">
@@ -149,7 +149,7 @@ export function Transcript({ view, bots, pending, onTakeOver }: { view: BotView;
             </div>
           );
         })}
-        {pending === null ? null : <MyBubble text={pending} mentions={botMentions(bots)} />}
+        {pending.map((message) => <MyBubble key={message.key} text={message.text} mentions={botMentions(bots)} />)}
         {view.partial === null ? null : <BotBubble text={view.partial} />}
         {view.busy && view.partial === null ? <Thinking index={botIndex} /> : null}
         {view.takeover === null ? null : (

@@ -1,0 +1,6 @@
+{
+  "bundle": {
+    "targets": ["app", "dmg"],
+    "resources": { "../scripts/flarebot-local.ts": "daemon/flarebot-local.ts" }
+  }
+}

@@ -14,7 +14,8 @@ Inspired by the UX of [Grok Bot](https://docs.x.ai/grok-bot/overview).
 | --- | --- |
 | Named Bots with a role, chat, steering and stop | Built |
 | Memory managed through chat, and a model and effort picker per Bot | Built |
-| One shared computer and Chrome, with a window and folder per Bot | Built, tab control tested locally |
+| One shared computer and Chrome, with a window per Bot | Built, tab control tested locally |
+| Each Bot's files live in its own Durable Object: file tools, a just-bash shell and git run without the computer; `run_linux` uses the computer for real binaries and builds | Built, not yet run by a Bot |
 | Threads per Bot: start, switch, rename, stop and close | Built, start and close tested locally |
 | Clear a Bot's main chat from Details, keeping its memory, folder and threads | Built, tested locally |
 | Each Bot's folder is a clone of its own Cloudflare Artifacts repo, shared by all its threads and auto-saved when the Bot goes idle | Built, clone and auto-save tested locally |
@@ -25,6 +26,7 @@ Inspired by the UX of [Grok Bot](https://docs.x.ai/grok-bot/overview).
 | Commands, plus screenshots, clicks, typing, keys and scrolling in the Bot's tab | Built |
 | Live preview, take over, hand back | Built |
 | Sleep when idle, restore from a snapshot | Built |
+| Each Bot's `bin` and the Chrome profile backed up to R2 on sleep, restored after a reset or a snapshot that won't restore | Built, backup and restore tested locally |
 | Import cookies from local Chrome | Built |
 | Email code sign-in for allowed emails | Built |
 | Installable mobile app (PWA) with an iOS Messages style phone layout | Built, tested at phone size locally |
@@ -38,9 +40,11 @@ Inspired by the UX of [Grok Bot](https://docs.x.ai/grok-bot/overview).
 | One-line Mac install with a LaunchAgent, a folder picker and browser approval instead of pairing codes | Built, link flow and daemon tested locally |
 | Model turns on your own Mac's Claude Code login through the Mac daemon, falling back to the cloud container when the Mac is offline | Built, not yet run live |
 | Desktop app (Tauri) that starts the Mac daemon and keeps it running when the window is closed | Built, compiles, not yet run |
+| Android and iOS apps (Capacitor) around the same deployed UI, without the Mac daemon | Android debug APK builds; iOS project generated, needs Xcode to build |
 | Connected apps, MCP OAuth sign-in, Vault | Planned |
-| Push notifications when a Bot finishes, from the bell in the chat list | Built, encryption and signing checked locally |
-| Optional Langfuse traces for every model turn, on when the `LANGFUSE_*` secrets are in Infisical | Built |
+| Push notifications when a Bot finishes, from the bell in the chat list | Web Push built, encryption and signing checked locally |
+| Native push on the phone apps through APNs and FCM | Built, not yet run: needs the APNs key and a Firebase project in Infisical |
+| Optional Langfuse traces for every Bot run, with each model turn and tool call nested, on when the `LANGFUSE_*` secrets are in Infisical | Built, checked against the self-hosted Langfuse |
 | Voice | Planned |
 
 ## Quick start
@@ -62,6 +66,11 @@ Open http://127.0.0.1:8787. The first run builds the computer image, which takes
 | `bun run typecheck` | Check types |
 | `bun run build` | Build for production |
 | `scripts/deploy.sh` | Deploy, including migrations and secrets |
+| `bun run tauri:build` | Build the Mac app |
+| `bun run cap:sync` | Build the web app and sync it into the Android and iOS projects |
+| `bun run cap:android` | Run the Android app on a connected phone |
+| `bun run cap:ios` | Open the iOS project in Xcode |
+| `bun run android:release` | Build the signed Android release APK |
 | `bun scripts/import-chrome-cookies.ts` | Copy local Chrome logins to the computer |
 | `bun scripts/add-cli.ts --file <path> [--name <name>] [--description <text>]` | Add a Linux `amd64` CLI to the shared pool, then tick it per Bot in Details |
 | `curl -fsSL <app url>/mac/install.sh \| sh` | Connect this Mac: installs the daemon, then asks for a folder and opens the browser to approve |
@@ -78,8 +87,8 @@ Read [Cookie import](docs/architecture.md#cookie-import) before importing. Every
 - **Threads:** each thread is a new conversation, in the Bot's own folder or in a project.
 - **Projects:** shared Artifacts repos. A Bot works in a project on its own branch, `flarebot/<Bot repo>`.
 - **Messages:** any Bot can message any other Bot. The sender writes to its outbox, which retries until the other Bot's inbox accepts it, and the answer comes back the same way.
-- **Folder:** `/workspace/bots/<Bot ID>` on the shared computer, a git clone of the Bot's own Cloudflare Artifacts repo, auto-saved when the Bot goes idle.
-- **Computer:** one Linux container shared by all Bots, with one Chrome and a window per Bot, that sleeps when idle.
+- **Folder:** `/workspace/bots/<Bot ID>` in the Bot's own Durable Object, a git clone of the Bot's own Cloudflare Artifacts repo, auto-saved when the Bot goes idle.
+- **Computer:** one Linux container shared by all Bots, with one Chrome and a window per Bot, that sleeps when idle. It is used for Chrome, `run_linux` and the shared pool, and starts only for those.
 
 [Architecture](docs/architecture.md) has the details.
 

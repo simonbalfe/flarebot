@@ -12,11 +12,12 @@ Each Bot is a bubble scoped to one job. All Bots share one computer and one Chro
 | Memory | `memory` in the `Bot` storage | No |
 | Model | `profile.model` in the `Bot` storage | No |
 | Inbox | `flarebot_mailbox` table in the `Bot` storage | No |
-| Browser tab | One Chrome window per Bot, its target ID in the `Computer` storage under `tabs` | No |
-| Files, skills, CLIs | `/workspace/bots/<Bot ID>` on the shared computer | By convention only |
+| Browser tab | One Chrome window per Bot, its target ID in the `SharedComputer` storage under `tabs` | No |
+| Files, skills | `/workspace/bots/<Bot ID>` in the Bot's own Durable Object | No |
+| CLIs | `/workspace/bots/<Bot ID>/bin` on the shared computer | By convention only |
 | Folder repo | The Bot's folder is a clone of its own Artifacts repo | No |
 | Chrome profile and logins | `/workspace/.chrome` | Yes |
-| Computer | One container, the `Computer` named `me` | Yes |
+| Computer | One container, the `SharedComputer` named `me` | Yes |
 
 Bubbles cross only through messages: `message_bot`, the replies it triggers, and group posts. A Bot that needs another Bot's skill or knowledge asks for it in a message.
 
@@ -27,7 +28,8 @@ Bubbles cross only through messages: `message_bot`, the replies it triggers, and
 | Worker | Cloudflare Worker | API, auth, web app, screen proxy |
 | `User` | Durable Object | Bot list with roles, and sidebar summaries |
 | `Bot` | Durable Object, one per Bot | Pi agent loop, role, transcript, memory, mailbox, takeover state, replies owed |
-| `Computer` | Durable Object and container, one per user | Linux desktop, one Chrome with a tab per Bot, terminal, `/workspace` |
+| `SharedComputer` | Durable Object and container, one per user, on the `durable_object` scheduling policy with the `desktop` image and a `standard-2` instance chosen in `start()` | Linux desktop, one Chrome with a tab per Bot, terminal, `/workspace` |
+| `FILES` | R2 bucket `flarebot-files` | Backups of each Bot's `bin` and the Chrome profile |
 | `ModelContainer` | Durable Object and container, one per Bot, plus one named `shared` for group routing | `pi-claude-bridge` on the Claude Agent SDK and your Claude subscription, starts on a model call and sleeps after 10 idle minutes |
 
 ## Model calls
@@ -37,7 +39,7 @@ Bubbles cross only through messages: `message_bot`, the replies it triggers, and
 - `pi-claude-bridge` is installed from npm at an exact version. `server.ts` gives it a minimal Pi extension host: it captures the provider the extension registers and fires the `session_start` and `before_agent_start` events the extension expects.
 - Pi still runs every tool inside the Bot. The bridge serves the tools to Claude Code through its own MCP server and parks the query until the next request delivers the tool result, so one Claude Code query spans the whole tool loop.
 - A Bot's container keeps one Claude Code session per Bot, under `/home/node/sessions/<Bot id>`, and the bridge resumes it so the prompt cache carries across turns. After a sleep or deploy the bridge rebuilds the session from the transcript Pi sends.
-- `ModelContainer` is separate from `Computer` because Bots run arbitrary commands on `Computer`. The token reaches the container only, never `Computer` or the model.
+- `ModelContainer` is separate from `SharedComputer` because Bots run arbitrary commands on `SharedComputer`. The token reaches the container only, never `SharedComputer` or the model.
 - The system prompt is Claude Code's own preset with the Bot prompt appended. The bridge rejects a prompt that contains Pi's built-in preamble.
 - Group routing and other one-shot calls (`claudeText`) use the `shared` container with `oneShot` set, which the bridge runs as an isolated query with no session and no cache.
 - The image runs as the `node` user, because Claude Code refuses to run with permissions bypassed as root.
@@ -69,6 +71,23 @@ Bubbles cross only through messages: `message_bot`, the replies it triggers, and
 - Web Push and the service worker are the browser's. They are not wired to the desktop window.
 - `window.confirm` returns false without showing anything in the desktop window, because wry's macOS WebView delegate has no JavaScript dialog handlers. The web UI uses `ConfirmDialog` instead.
 
+Tauri builds the Mac app only. `src-tauri/tauri.macos.conf.json` holds the `app` and `dmg` targets and the bundled daemon.
+
+## Phone apps
+
+The Android and iPhone apps are [Capacitor](https://capacitorjs.com) shells around the same UI, chosen over Tauri's mobile targets for the official push plugin and native projects that are committed and never regenerated.
+
+- `capacitor.config.ts`: app ID `com.flarebot.app`, `webDir` `dist/client`, and `server.url` set to the deployed app when `FLAREBOT_APP_URL` is in the environment. The phones load the deployed app like the Mac window does, so cookies and sign-in work unchanged and a web deploy updates them. Capacitor injects its native bridge into that page, so plugins work on it.
+- `android/` and `ios/` are committed and edited by hand. The copied web build and the generated `capacitor.config.json` in each are gitignored, so the deployed URL never reaches the repo.
+- `scripts/cap.sh [cap args]`: sets `FLAREBOT_APP_URL` from `FLAREBOT_DOMAIN`, writes `android/app/google-services.json` from `FLAREBOT_GOOGLE_SERVICES_JSON` when that secret exists (the file is gitignored), uses Homebrew's `openjdk@21` when installed, builds the web app, runs `cap sync`, then any `cap` command passed. `bun run cap:android` runs it on a connected phone, `bun run cap:ios` opens Xcode.
+- Android needs `ANDROID_HOME` and JDK 21. Gradle 8.14 in the Capacitor template can't run on JDK 26. A debug APK: `scripts/cap.sh`, then `./gradlew assembleDebug` in `android/` (about 6 MB).
+- `scripts/android-release.sh` (`bun run android:release`): builds the unsigned release APK with Gradle, then aligns and signs it with the SDK's `zipalign` and `apksigner`, writing `android/app/build/outputs/apk/release/flarebot.apk`. The keystore is `FLAREBOT_ANDROID_KEYSTORE_B64` (base64 PKCS12, alias `flarebot`) and `FLAREBOT_ANDROID_KEYSTORE_PASSWORD` in Infisical, the same key the Tauri APK used, decoded to a temp folder only while signing. Every future version must be signed with that key, or Android refuses to update the installed app.
+- `versionCode` is 2000 in `android/app/build.gradle`, above the Tauri APK's 1000, so the Capacitor APK installs as an update over it. Raise it for every release.
+- Install with `adb install -r <apk>`, or send the APK to the phone and open it after allowing that app to install unknown apps. A debug build and a release build have different signatures, so switching between them needs an uninstall, which also signs you out.
+- iOS needs full Xcode, an Apple developer team set in Xcode's Signing & Capabilities, and the Push Notifications capability on the App ID. `ios/App/App/App.entitlements` sets `aps-environment` and `AppDelegate.swift` forwards the APNs token to Capacitor. Xcode isn't installed on the build Mac yet, so the iOS project has never been built.
+- App icons come from `public/icon.svg` (iOS, 1024px with no alpha, which the App Store requires) and the Tauri Android icons. The splash images are plain `#fcfcfc`.
+- The Mac section works from a phone, because it talks to the paired Mac through the Worker.
+
 ## Flows
 
 ### Sending a message
@@ -77,22 +96,25 @@ Bubbles cross only through messages: `message_bot`, the replies it triggers, and
 
 1. `POST /api/bots/:id/messages` submits to the Bot's Pi conversation and returns 202.
 2. The UI polls `GET /api/bots/:id` every 800 ms while the Bot is busy.
-3. A message sent during a turn steers it.
+3. A message sent during a turn steers it. Pi holds it in the conversation's `pi.inbox` doc until the current tool round ends. `toTranscriptView` in `src/worker/view.ts` shows inbox items at the end of the transcript with `queued:<submission id>` IDs, and moves them into place once Pi does.
+4. The UI shows each sent message as a pending bubble until the POST and the next view load finish. It hides a pending bubble as soon as the view holds more matching user messages than before the send, so a message never shows twice. A view response older than one already applied is dropped. A failed send puts the text back in the composer.
 
 ### Using the computer
 
-1. A tool calls the `Computer` Durable Object.
-2. `Computer` starts the container if it's off, restoring the latest snapshot.
-3. `run_command` runs with `container.exec()`, starting in the Bot's folder with its `bin` on `PATH`.
+1. A tool calls the `SharedComputer` Durable Object.
+2. `SharedComputer` starts the container if it's off, restoring the latest snapshot, or a fresh image plus the R2 backups when there is none. See [Backups](#backups).
+3. `run_linux` syncs the Bot's folder to the computer, then runs with `container.exec()`, starting in the Bot's folder with its `bin` on `PATH`. See [Folder repo](#folder-repo).
+
+File tools and `bash` do not use the computer.
 
 ### Using the browser
 
 Chromium runs once, with its debugging port on 9222. Every Bot drives its own window through the Chrome DevTools Protocol, so Bots never move each other's page.
 
 1. `open_url`, `screenshot`, `click`, `type_text`, `press_key` and `scroll` call `Computer.browser(botId, action)`.
-2. `Computer` runs browser actions one at a time. It passes the Bot's saved target ID and the action to `computer/browser-tab.mjs`, which the Worker sends to `node -e`, so the script doesn't depend on the image or a snapshot.
+2. `SharedComputer` runs browser actions one at a time. It passes the Bot's saved target ID and the action to `computer/browser-tab.mjs`, which the Worker sends to `node -e`, so the script doesn't depend on the image or a snapshot.
 3. The script opens a maximized window for the Bot if its target is gone, brings it to the front, attaches, and runs the action: `Page.navigate`, `Page.captureScreenshot` (JPEG at quality 70, to keep the output small), `Input.dispatchMouseEvent`, `Input.insertText` or `Input.dispatchKeyEvent`. Navigation, clicks and keys wait for the page to load.
-4. It returns the target ID, the tab's URL and title, and the screenshot when asked. `Computer` saves the target ID under `tabs`.
+4. It returns the target ID, the tab's URL and title, and the screenshot when asked. `SharedComputer` saves the target ID under `tabs`.
 
 `tabs` is cleared when the computer sleeps or resets, so each Bot gets a new window on the next use.
 
@@ -123,10 +145,27 @@ Your own messages go straight into a Bot's chat and steer the current turn. Ever
 ### Sleeping
 
 1. An alarm checks for activity every minute.
-2. After 10 idle minutes, `Computer` quits Chromium, saves a snapshot and destroys the container.
+2. After 10 idle minutes, `SharedComputer` quits Chromium, backs up to R2, saves a snapshot and destroys the container.
 3. The next use restores files and the Chrome profile. Running processes and open tabs are lost.
 
 A snapshot restores the whole container filesystem, including files from an older image. Files changed in `computer/` reach a computer that already has a snapshot only after a reset.
+
+Snapshots need the `durable_object` scheduling policy, and an existing container app can't change policy. The `v5` migration in `wrangler.jsonc` replaced the old `Computer` class and its `default` policy app with `SharedComputer`. Removing the old entry doesn't delete the old app: after the first deploy, find it with `wrangler containers list` and delete it with `wrangler containers delete <id>`.
+
+### Backups
+
+Snapshots are a cache. Everything a Bot needs to keep is also outside the container: its folder and projects in Artifacts, and the rest in the R2 bucket `flarebot-files`.
+
+| R2 key | Contents |
+| --- | --- |
+| `bots/<Bot ID>/bin.tar.gz` | The Bot's `bin`, with file modes |
+| `computer/chrome.tar.gz` | `/workspace/.chrome` without caches and `Singleton*` locks |
+
+1. **Backup:** `#sleep` in `src/worker/computer.ts` calls `backupComputer` in `src/worker/backups.ts` after Chromium quits. It streams `tar -czf -` from the container into an R2 multipart upload in 16 MiB parts, through the Worker binding, so no R2 keys reach the container. A part that fails or a `tar` exit code above 1 aborts the upload and keeps the previous backup.
+2. **Fresh boot:** with no snapshot, or when a snapshot doesn't start within the ready timeout, `SharedComputer` drops the snapshot, starts the image with `FLAREBOT_RESTORE=1`, and streams each backup from R2 into `tar -xzf -`. `computer/start.sh` holds Chromium back until `SharedComputer` creates `/tmp/flarebot-restored`, so Chrome never opens a half-restored profile.
+3. **Failed Chrome restore:** `SharedComputer` sets `chromeRestoreFailed` and stops backing up the profile, so an empty profile never replaces a good backup. The next reset clears it.
+
+`POST /api/computer/reset` drops the snapshot and boots a fresh image with the backups, which is how changes to `computer/` reach a running computer. `?wipe=true` also deletes every R2 backup.
 
 ## Cookie import
 
@@ -144,9 +183,9 @@ A snapshot restores the whole container filesystem, including files from an olde
 | `--url` | Choose the target app |
 | `--dry-run` | Count cookies without importing |
 
-To wipe the computer, including imported logins: `curl -X POST http://127.0.0.1:8787/api/computer/reset`.
+To wipe the computer, including imported logins: `curl -X POST 'http://127.0.0.1:8787/api/computer/reset?wipe=true'`. Without `wipe=true`, the logins come back from the R2 backup.
 
-**Risk:** every Bot can use and read imported logins, because they share one Chrome profile and `run_command` has full access to the computer. No approvals exist yet, and snapshots contain the logins too.
+**Risk:** every Bot can use and read imported logins, because they share one Chrome profile and `run_linux` has full access to the computer. No approvals exist yet, and snapshots and the R2 backup contain the logins too. The bucket is private and encrypted at rest, but the backup itself isn't encrypted by flarebot.
 
 **Limits:**
 - Chromium caps its store near 3,300 cookies, so the import keeps 3,000, preferring `HttpOnly` then recently used.
@@ -185,8 +224,8 @@ Each Bot keeps its skills and CLIs in its own folder. To pass a process to anoth
 
 | Path | Contents |
 | --- | --- |
-| `/workspace/bots/<Bot ID>` | The Bot's folder, where `run_command` starts in every thread. A clone of its repo, as [Folder repo](#folder-repo) shows |
-| `/workspace/bots/<Bot ID>/bin` | The Bot's CLIs, on `PATH` for its `run_command` |
+| `/workspace/bots/<Bot ID>` | The Bot's folder, where `bash` and `run_linux` start in every thread. A clone of its repo, as [Folder repo](#folder-repo) shows |
+| `/workspace/bots/<Bot ID>/bin` | The Bot's CLIs, on the computer, on `PATH` for its `run_linux` |
 | `/workspace/bots/<Bot ID>/skills/<name>/SKILL.md` | The Bot's skill instructions, plus any scripts beside them |
 
 | Tool | Purpose |
@@ -194,7 +233,7 @@ Each Bot keeps its skills and CLIs in its own folder. To pass a process to anoth
 | `list_skills` | Names and descriptions of the Bot's skills |
 | `load_skill` | Full instructions for one of its skills |
 | `save_skill` | Create or replace one of its skills |
-| `run_command` | Download or build a CLI into its `bin` |
+| `run_linux` | Download or build a CLI into its `bin` |
 
 `PUT /api/computer/files` and `scripts/install-on-computer.ts` copy files in from outside. Paths must be under `/workspace`; use `/workspace/bots/<Bot ID>/...` to give one Bot a file.
 
@@ -210,10 +249,10 @@ One pool of CLIs and Agent Skills for all Bots. You or a Bot adds an item once, 
 | Remove an item from the pool and every Bot | `DELETE /api/clis/:name`, `DELETE /api/skills/:name` |
 | Set a Bot's items | `PUT /api/bots/:id/clis` or `PUT /api/bots/:id/skills` with `{"names": [...]}` |
 
-1. The pool is the Artifacts repo `toolbox`, cloned to `/workspace/toolbox`. A CLI is `clis/<name>/<name>`; a skill is the folder `skills/<name>/` with its `SKILL.md`, scripts and references. `src/worker/pool.ts` holds the logic.
-2. Every add or remove commits and pushes `toolbox`, so the pool survives a computer reset. The next `run_command` or `load_skill` from a Bot with pool items clones it back.
+1. The pool is the Artifacts repo `toolbox`, cloned to `/workspace/toolbox` on the computer. Shared skills are read from the `toolbox` Artifacts repo directly; their scripts still run on the computer. A CLI is `clis/<name>/<name>`; a skill is the folder `skills/<name>/` with its `SKILL.md`, scripts and references. `src/worker/pool.ts` holds the logic.
+2. Every add or remove commits and pushes `toolbox`, so the pool survives a computer reset. The next `run_linux` or `load_skill` from a Bot with pool items clones it back.
 3. The `User` storage holds the pool lists as `clis` and `skills`. Each Bot stores its ticked items under the same keys, and `GET /api/bots/:id` returns them.
-4. **CLIs:** `run_command` puts the Bot's own `bin` first on `PATH`, then the folder of each ticked CLI. The prompt lists the ticked CLIs with their descriptions and tells the Bot to run `--help` first.
+4. **CLIs:** `run_linux` puts the Bot's own `bin` first on `PATH`, then the folder of each ticked CLI. The prompt lists the ticked CLIs with their descriptions and tells the Bot to run `--help` first.
 5. **Skills** follow the [Agent Skills specification](https://agentskills.io/specification), the format Pi implements:
    - `SKILL.md` starts with `name` and `description` frontmatter. The name is lowercase letters and numbers joined by single hyphens, up to 64 characters; the description is 1 to 1024 characters. Folded (`>`) and literal (`|`) descriptions work. The pool takes the name from the frontmatter and refuses a file that breaks these rules.
    - The prompt lists ticked skills in Pi's `<available_skills>` block with name, description and `SKILL.md` location, and never the full instructions.
@@ -221,20 +260,21 @@ One pool of CLIs and Agent Skills for all Bots. You or a Bot adds an item once, 
 6. **Bot-made items:** a Bot writes a CLI or a skill folder, tests it, then calls `publish_cli` (name, path, description) or `publish_skill` (path). Paths are relative to the folder the chat works in, or absolute under the Bot's own folder. A CLI must start with `#!` or be a Linux binary; bash, python3 and node are on the computer, and a Bot downloads other toolchains into its own `bin`.
 7. A published item records the Bot as `publishedBy` and is ticked for that Bot at once. A Bot can replace only items it published. You can replace or remove any item.
 8. The Details panel's **CLIs** and **Skills** sections tick items, add one from a file, and remove one.
-9. `save_skill` writes a private skill to the Bot's own `skills/` folder, not to the pool. The **Skills** section lists the Bot's private skills under the shared ones, with a lock icon and a publish button. `GET /api/bots/:id/own-skills` scans the folder when the computer is running and otherwise returns the last scan; `POST /api/bots/:id/own-skills/:name/publish` publishes one to the pool as that Bot's and ticks it.
+9. `save_skill` writes a private skill to the Bot's own `skills/` folder, not to the pool. The **Skills** section lists the Bot's private skills under the shared ones, with a lock icon and a publish button. `GET /api/bots/:id/own-skills` scans the folder in the Bot's Durable Object, and publishing first sends the folder to the computer; `POST /api/bots/:id/own-skills/:name/publish` publishes one to the pool as that Bot's and ticks it.
 
 **Limits:**
 - 30 MB per upload, from the Durable Object call size limit.
 - Ticking is enforced only through `PATH` and the prompt. A Bot can still read `/workspace/toolbox` directly.
 - CLIs and skills get no secrets yet.
 - Nothing reviews a Bot-made item before it enters the pool. It reaches another Bot only when you tick it there.
-- Compiled toolchains such as Go, Rust and Bun aren't in the computer image, so a Bot downloads them again after a reset.
+- Compiled toolchains such as Go, Rust and Bun aren't in the computer image. A Bot downloads them into its own `bin`, which comes back from R2 after a reset.
 - `disable-model-invocation`, `allowed-tools` and `/skill:name` commands from the spec aren't supported.
 
-**Risk:** the folders are separated by the prompt, not by permissions. `run_command` can still read or change another Bot's folder, and there is no version history or review.
+**Risk:** the folders are separated by the prompt, not by permissions. `run_linux` can still read or change another Bot's `bin` and the pool, and there is no version history or review.
 
 **Limits:**
-- A Bot's own `bin` lives only in snapshots, so a reset or an expired snapshot deletes it. Its own skills are saved in its repo.
+- A Bot's own `bin` is backed up to R2 only when the computer sleeps, so a crash loses changes since the last sleep. Its own skills are saved in its repo.
+- Deleting a Bot leaves its `bin` backup in R2.
 - CLIs must be Linux `amd64` builds.
 
 ## Threads
@@ -262,18 +302,41 @@ A Bot has its main chat plus any threads you start. A thread is a new Pi convers
 
 ## Folder repo
 
-Each Bot's folder, `/workspace/bots/<Bot ID>`, is a git clone of the Bot's own Cloudflare Artifacts repo, in the `flarebot` namespace through the `ARTIFACTS` binding. The repo is named `<bot name>-<first 8 characters of the Bot ID>`, for example `jake-1a2b3c4d`. `src/worker/repos.ts` holds the git logic, and `GET /api/bots/:id` returns the path and repo as `workspace`.
+Each Bot's folder, `/workspace/bots/<Bot ID>`, is a git clone of the Bot's own Cloudflare Artifacts repo, in the `flarebot` namespace through the `ARTIFACTS` binding. The repo is named `<bot name>-<first 8 characters of the Bot ID>`, for example `jake-1a2b3c4d`. `GET /api/bots/:id` returns the path and repo as `workspace`.
 
-1. The first `run_command`, `pull_repo` or `push_repo` creates the repo if it doesn't exist and clones it into the folder. Files already in the folder stay and are saved on the next auto-save; files missing locally are restored from the repo.
-2. `bin/` and `projects/` are excluded from git, so downloaded CLIs and project clones aren't saved to the Bot's repo. Skills in `skills/` are saved.
-3. **Auto-save:** when the Bot goes idle, and when a thread closes, any change in the folder is committed as `flarebot: <Bot> auto-save` and pushed to the default branch.
-4. `push_repo` commits and pushes at once. `pull_repo` fetches and fast-forwards.
-5. Each git call gets a repo-scoped token from the binding: `read` for clone and pull, `write` for push, 10 minutes, revoked when the call ends. The token reaches git only as an `http.extraHeader` in the command's environment, so it never enters a file, the transcript or the model.
-6. Commits use the Bot's name as the author.
-7. The Details panel shows the folder and the repo.
+`src/worker/files.ts` holds the folder logic. `src/worker/repos.ts` holds the computer-side clone scripts.
+
+### Files in the Bot's Durable Object
+
+1. The Bot's `Workspace` from `@cloudflare/computer` stores files in SQLite in the `Bot` Durable Object. Paths are kept identical to the computer: `/workspace/bots/<Bot ID>`.
+2. The `shell` backend runs just-bash in a Dynamic Worker through the `LOADER` binding. `@cloudflare/computer`'s `WorkspaceServiceProxy`, exported from `src/worker/index.ts` and minted through `ctx.exports`, reaches the Workspace by calling `__getWorkspaceStub()` on the `Bot` Durable Object.
+3. File tools come from `@cloudflare/computer/tools/pi-ai`.
+4. Git runs through isomorphic-git. A host fetch wrapper adds a repo-scoped token to each request to Artifacts: minted per repo and scope (`read` for clone, fetch and pull, `write` for push), valid 10 minutes and cached until a minute before expiry. Tokens are minted only for the Bot's own repo and the repos of its open project threads. The token never enters a file, the transcript or the model.
+5. Commits use the Bot's name as the author.
+6. **Clone:** the first use creates the repo if it doesn't exist and clones it into the Durable Object. `bin/` and `projects/` are excluded from git, so downloaded CLIs and project clones aren't saved to the Bot's repo. Skills in `skills/` are saved.
+7. **Migration:** the first clone into the Durable Object first saves the computer's copy of the folder if the computer is running.
+8. **Auto-save:** when the Bot goes idle, and when a thread closes, any change in the folder is committed as `flarebot: <Bot> auto-save` and pushed to the default branch, from the Durable Object.
+9. `push_repo` commits and pushes at once. `pull_repo` fetches and merges; a merge conflict is reported, not resolved.
+10. The Details panel shows the folder and the repo.
+
+### Running on the computer
+
+`run_linux` copies the folder to the computer through git, runs the command, and brings the result back.
+
+1. The Durable Object commits and pushes the folder.
+2. The computer clone is reset to the pushed branch.
+3. The command runs.
+4. The computer commits and pushes.
+5. The Durable Object pulls.
+
+Git-ignored files and `bin` stay on the computer. The computer's own git calls use the same repo-scoped tokens, passed as an `http.extraHeader` in the command's environment.
 
 **Limits:**
-- Work since the last auto-save lives only on the computer, so a reset mid-turn loses it.
+- The worker shell backend is experimental in `@cloudflare/computer`.
+- `bash` has no native binaries. Use `run_linux` for them, for npm and for compilers.
+- isomorphic-git has no rebase, cherry-pick, submodules or ssh.
+- Each Bot Durable Object holds one workspace of about 10 GB, with no R2 spillover.
+- Merge conflicts on pull are reported, not resolved.
 - Local dev uses the remote Artifacts service, so `scripts/dev.sh` sets `CLOUDFLARE_ACCOUNT_ID` and needs `wrangler login`.
 
 ## Projects
@@ -394,7 +457,8 @@ The Details panel lists the servers with a checkbox for this Bot, adds one with 
 | Area | Limit |
 | --- | --- |
 | Stop | Ends the turn, but a running command continues until its timeout |
-| Snapshots | In public beta and expire after 30 days. An expired restore isn't handled |
+| Snapshots | In public beta. Each one expires 30 days after it was made or last restored, and restores only on the image version that made it, so the first wake after a `computer/` change uses the fallback. The fallback is a fresh image plus the R2 backups, losing files outside Bot `bin` folders, the Chrome profile and the Artifacts repos |
+| Computer count | `max_instances` isn't available on the `durable_object` policy. There is one computer, named `me`, and running containers count toward the account limit |
 | Paste | Local clipboard paste doesn't reach the desktop during takeover |
 | Local image | `linux/amd64`, so it runs under emulation on Apple silicon |
 | Updates | The UI polls instead of using a WebSocket |
@@ -431,8 +495,9 @@ Below 768px wide the layout follows iOS Messages:
 2. Tapping a chat pushes it with a back chevron and the Bot's avatar and name centred. Tapping the name opens Details.
 3. Details and Computer open as full-screen sheets with **Done**.
 4. Each step adds a browser history entry, so the Android back gesture and the browser back button go sheet → chat → list.
-5. Long-press a row for Edit and Delete; inputs use 16px text so focusing them doesn't zoom; the composer doesn't grab focus on phones.
-6. Take over opens full screen. While you're in control, noVNC's own control handle stays on the left edge, so its on-screen keyboard is reachable. The app isn't locked to portrait, so turning the phone sideways shows the desktop larger.
+5. Bubbles widen to 92% of the screen, and Markdown tables keep whole words and scroll sideways instead of squeezing columns.
+6. Long-press a row for Edit and Delete; inputs use 16px text so focusing them doesn't zoom; the composer doesn't grab focus on phones.
+7. Take over opens full screen. While you're in control, noVNC's own control handle stays on the left edge, so its on-screen keyboard is reachable. The app isn't locked to portrait, so turning the phone sideways shows the desktop larger.
 
 Install on Android: open the site in Chrome, then menu → **Install app**. On iPhone: Safari → Share → **Add to Home Screen**.
 
@@ -451,6 +516,15 @@ The bell in the chat list footer turns push on for that device.
 4. `src/worker/push.ts` encrypts the payload (RFC 8291, `aes128gcm`) and signs a VAPID JWT with Web Crypto. Endpoints that answer 404 or 410 are dropped.
 5. `public/sw.js` shows the notification, tagged per Bot, thread or group so a newer one replaces the old. Tapping it focuses the app and opens that chat (`/?bot=`, `&thread=`, or `/?group=`).
 
+**Phone apps** use native push instead of the service worker:
+
+1. In the Capacitor apps the bell calls `@capacitor/push-notifications`: permission, then `register()`, which returns an APNs device token on iPhone and an FCM token on Android. `POST /api/push/devices` saves `{platform, token}` and the token is kept in `localStorage`. On launch the app registers again and replaces the token if it changed. Turning it off calls `DELETE /api/push/devices` and `unregister()`.
+2. `User` keeps the devices next to the browser subscriptions, and `notify` sends to both.
+3. `src/worker/native-push.ts` sends to APNs with an ES256 JWT from the `.p8` key, cached for 50 minutes. It tries production first and the sandbox on `BadDeviceToken`, so Xcode debug builds work too. Android goes through FCM HTTP v1 with an OAuth token from the service account. Tokens APNs answers 410 for, or FCM marks `UNREGISTERED`, are dropped.
+4. Tapping a notification fires `pushNotificationActionPerformed`, and the app opens the `url` from its data like the service worker does.
+
+APNs only accepts HTTP/2. Deployed Workers reach it through Cloudflare's proxy, but local `workerd` speaks HTTP/1.1, so iPhone push works only from the deployed Worker. A platform whose secrets are missing logs `push_unconfigured` and is skipped.
+
 ## Deploying
 
 `scripts/deploy.sh` builds, applies D1 migrations, deploys, then copies secrets from Infisical to the Worker.
@@ -465,12 +539,21 @@ The bell in the chat list footer turns push on for that device.
 | `FLAREBOT_DOMAIN` | Custom domain, also used for the app URL |
 | `FLAREBOT_CLOUDFLARE_ACCOUNT_ID` | Target account |
 | `LANGFUSE_HOST`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` | Optional. Turns on [Langfuse tracing](#langfuse-tracing) when all three are set |
+| `FLAREBOT_LANGFUSE_HOST` | Optional. Public Langfuse URL the deployed Worker sends to instead of `LANGFUSE_HOST`, which is a tailnet address the Worker can't reach |
+| `FLAREBOT_APNS_KEY_P8`, `FLAREBOT_APNS_KEY_ID`, `FLAREBOT_APNS_TEAM_ID` | Optional. iPhone push: the APNs auth key (`.p8` contents), its key ID and the Apple team ID. Deployed as `APNS_KEY_P8`, `APNS_KEY_ID`, `APNS_TEAM_ID` |
+| `FLAREBOT_FCM_SERVICE_ACCOUNT` | Optional. Android push: the Firebase service account JSON with the `firebase.messaging` role. Deployed as `FCM_SERVICE_ACCOUNT` |
+| `FLAREBOT_GOOGLE_SERVICES_JSON` | Optional. The Firebase Android app's `google-services.json`, written into `android/app/` by `scripts/cap.sh`. Without it the Android build has no FCM and registration fails |
+| `FLAREBOT_ANDROID_KEYSTORE_B64`, `FLAREBOT_ANDROID_KEYSTORE_PASSWORD` | Android release signing key, used by `scripts/android-release.sh` |
 
 ### Langfuse tracing
 
-`src/worker/langfuse.ts` sends one trace per model turn to Langfuse's OTLP endpoint, from `claude.ts`, after the turn ends. With any of the three secrets missing it does nothing. A failed send is logged as `langfuse_failed` and never affects the turn.
+`src/worker/langfuse.ts` sends every Bot run to Langfuse's OTLP endpoint, one span at a time, as each model turn or tool call ends. With any of the three secrets missing it does nothing. A failed send is logged as `langfuse_failed` and never affects the turn.
 
-- Every trace is named `flarebot` and tagged `flarebot` plus `bot` or `router`. The Langfuse user is the Bot's name, and the session is the conversation.
+- **Run:** one trace per user message. Its ID comes from the conversation's provider session and that message, so every model turn of the run lands in it. The trace input is the user message.
+- **Model turn:** a `GENERATION` with the full context as input, the reply and tool calls as output, the model and token usage.
+- **Tool call:** `botExtension` wraps every tool, so each call is a `TOOL` nested under the model turn that asked for it, matched by the provider's tool call ID. `mcp_call` spans are named `mcp_call <server>.<tool>`. A call that throws, returns `isError`, or whose output starts with `Failed` or `exit code` other than 0, or says `reported an error:`, has level `ERROR`.
+- Every trace is named `flarebot` and tagged `flarebot`, `bot` or `router`, and the Bot's name. The Langfuse user is the Bot's name, and the session is the conversation.
+- The deployed Worker sends to `FLAREBOT_LANGFUSE_HOST`, currently `https://leads.simonbalfe.com`, which simon-vps's Caddy routes to Langfuse. Traces land in the `agent-traces` project beside the Mac agents.
 - Failed turns have level `ERROR` and the error as the status message. When Claude's tool input or a container line can't be parsed, the raw text is in the `error_detail` metadata.
 - Traces hold conversation messages, tool arguments and output, so they include any client data in them. Each field is cut to its last 50,000 characters and images are replaced with `[image]`. The Claude token is never sent.
 - Failed turns are also logged to Workers Logs as `model_turn_failed`, with or without Langfuse.

@@ -30,7 +30,7 @@ const ttlSeconds = 24 * 60 * 60;
 const jwtLifetimeSeconds = 12 * 60 * 60;
 const maxBodyChars = 180;
 
-function base64Url(bytes: Uint8Array): string {
+export function base64Url(bytes: Uint8Array): string {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
   return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");

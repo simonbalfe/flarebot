@@ -2,6 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 import { claudeModelId, defaultEffort } from "./env";
 import { codemodeServer, isBuiltInServer, listTools, type McpServerConfig, type McpServerSummary, serverSummary } from "./mcp";
 import { addCli, type CliSummary, ensurePool, inspectSkill, type PoolKind, publishCli, publishSkill, removeItem, unpackUpload } from "./pool";
+import { type PushDevice, sendDevicePush } from "./native-push";
 import { createVapidKeys, type PushMessage, type PushSubscriptionInput, sendPush, type VapidKeys } from "./push";
 import { projectExists } from "./repos";
 import type { BotProfile } from "./tools";
@@ -252,7 +253,34 @@ export class User extends DurableObject<Env> {
     this.ctx.storage.kv.put("pushSubscriptions", this.#pushSubscriptions().filter((current) => current.endpoint !== endpoint));
   }
 
+  addPushDevice(device: PushDevice): void {
+    this.ctx.storage.kv.put("pushDevices", [...this.#pushDevices().filter((current) => current.token !== device.token), device]);
+  }
+
+  removePushDevice(token: string): void {
+    this.ctx.storage.kv.put("pushDevices", this.#pushDevices().filter((current) => current.token !== token));
+  }
+
   async notify(message: PushMessage): Promise<void> {
+    await Promise.all([this.#notifyBrowsers(message), this.#notifyDevices(message)]);
+  }
+
+  async #notifyDevices(message: PushMessage): Promise<void> {
+    const devices = this.#pushDevices();
+    if (devices.length === 0) return;
+    const outcomes = await Promise.all(devices.map((device) => sendDevicePush(this.env, device, message).catch((error: unknown) => {
+      console.error(JSON.stringify({ event: "push_failed", platform: device.platform, error: String(error) }));
+      return "failed" as const;
+    })));
+    const gone = devices.filter((_, index) => outcomes[index] === "gone").map((device) => device.token);
+    if (gone.length > 0) this.ctx.storage.kv.put("pushDevices", this.#pushDevices().filter((current) => !gone.includes(current.token)));
+  }
+
+  #pushDevices(): PushDevice[] {
+    return this.ctx.storage.kv.get<PushDevice[]>("pushDevices") ?? [];
+  }
+
+  async #notifyBrowsers(message: PushMessage): Promise<void> {
     const subscriptions = this.#pushSubscriptions();
     if (subscriptions.length === 0) return;
     const keys = await this.#vapidKeys();

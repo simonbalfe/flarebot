@@ -6,7 +6,7 @@ const roundButton = "grid size-8 shrink-0 md:size-7 cursor-pointer place-items-c
 
 const mentionPattern = /(^|\s)@([^\s@]*)$/;
 
-export function Composer({ name, busy, mentions, onSend, onStop, autoFocus = true }: { name: string; busy: boolean; mentions: MentionOption[]; onSend: (text: string) => void; onStop: () => void; autoFocus?: boolean }) {
+export function Composer({ name, busy, mentions, onSend, onStop, autoFocus = true }: { name: string; busy: boolean; mentions: MentionOption[]; onSend: (text: string) => Promise<boolean> | undefined; onStop: () => void; autoFocus?: boolean }) {
   const [draft, setDraft] = useState("");
   const [cursor, setCursor] = useState(0);
   const [highlighted, setHighlighted] = useState(0);
@@ -43,7 +43,9 @@ export function Composer({ name, busy, mentions, onSend, onStop, autoFocus = tru
     const text = draft.trim();
     if (text === "") return;
     setDraft("");
-    onSend(text);
+    void onSend(text)?.then((sent) => {
+      if (!sent) setDraft((current) => (current === "" ? text : current));
+    });
   };
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();

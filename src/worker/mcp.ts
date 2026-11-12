@@ -3,7 +3,8 @@ import { type LlmContent, McpClient, StreamableHttpTransport, toLlmContent } fro
 const maxTextChars = 30_000;
 const clientInfo = { name: "flarebot", version: "0.1.0" };
 const codemodeServerId = "codemode";
-const codemodeDescription = "Gateway to external APIs and connected MCP servers. Its code tool runs JavaScript with a codemode object. Call codemode.start({}) first.";
+const codemodeDescription =
+  "Gateway to external APIs and connected MCP servers. First call its docs tool with query set to the user's request; it returns the matching skill. Follow it. Find endpoints and MCP tools with its search tool, then call them with its execute tool, running several calls in one execute where you can.";
 
 export interface McpServerConfig {
   id: string;
