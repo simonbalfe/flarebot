@@ -8,6 +8,7 @@ import modelServerPackage from "../../model-container/package.json?raw";
 import modelServerSource from "../../model-container/server.ts?raw";
 import { macInstallScript } from "./mac-install";
 import { doc, openApiDocument } from "./openapi";
+import { codemodeCallbackPath } from "./codemode-auth";
 import { cliNamePattern, readSkill } from "./pool";
 import { pushDeviceSchema } from "./native-push";
 import { pushSubscriptionSchema } from "./push";
@@ -362,6 +363,20 @@ app.post("/api/mcp", doc({ id: "addMcpServer", tag: "MCP servers", summary: "Add
   const body = mcpServerBody.parse(await c.req.json());
   const result = await user(c.env).addMcpServer(body);
   return result.ok ? c.json({ server: result.server, tools: result.tools }, 201) : c.json({ error: result.error }, 400);
+});
+
+const codemodeCallbackQuery = z.object({ code: z.string().min(1), state: z.string().min(1), iss: z.string().optional() });
+
+app.post("/api/mcp/codemode/connect", requireApp, async (c) => c.json({ url: await user(c.env).connectCodemode(new URL(c.req.url).origin) }));
+
+app.get(codemodeCallbackPath, requireApp, async (c) => {
+  await user(c.env).finishCodemode(codemodeCallbackQuery.parse(c.req.query()));
+  return c.redirect("/");
+});
+
+app.delete("/api/mcp/codemode", requireApp, async (c) => {
+  await user(c.env).disconnectCodemode();
+  return c.body(null, 204);
 });
 
 app.delete("/api/mcp/:id", doc({ id: "removeMcpServer", tag: "MCP servers", summary: "Remove a remote MCP server" }), async (c) => {

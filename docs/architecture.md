@@ -447,8 +447,20 @@ Remote MCP servers are added once and switched on per Bot, so each Bot only sees
 
 The Details panel lists the servers with a checkbox for this Bot, adds one with **+** (name, URL, token), and removes one with its **×**.
 
+### codemode
+
+The built-in `codemode` server signs in with standard MCP OAuth, like any other MCP client of the gateway. There is no API key.
+
+1. **Connect** in Details calls `POST /api/mcp/codemode/connect`. `User.connectCodemode()` runs `authorizeMcp()` from `@earendil-works/pi-mcp/oauth`, which discovers the gateway's OAuth server, registers `flarebot` as a client, and returns the authorization URL.
+2. The browser goes to the gateway's consent screen, where you pick the client and role and enter a machine name. The gateway redirects to `GET /api/mcp/codemode/callback`, and `User.finishCodemode()` checks the state and exchanges the code.
+3. `src/worker/codemode-auth.ts` builds the provider. The `User` storage keeps the OAuth state, tokens and client under `codemodeOAuth`, and the app origin under `codemodeOrigin`.
+4. A Bot's codemode calls get their token from `User.codemodeToken()`, which refreshes it when it is within a minute of expiry or after a 401. The refresh runs inside `blockConcurrencyWhile`, so parallel Bots never refresh with the same token.
+5. Each call sends `x-codemode-agent: <Bot name>`, so the gateway logs and lists every Bot as its own caller, such as `flarebot @ cloudflare / Ada`.
+
+If the gateway revokes the grant or the refresh token expires, codemode calls fail with "codemode is not connected" until you click **Connect** again.
+
 **Limits:**
-- Bearer tokens only. Servers that need an OAuth sign-in aren't supported yet, though `pi-mcp` has the OAuth client for it.
+- Added servers take bearer tokens only. Only the built-in `codemode` server signs in with OAuth.
 - Streamable HTTP only, no stdio servers.
 - MCP tools are reached through the two generic tools rather than as one tool each.
 
@@ -587,7 +599,6 @@ APNs only accepts HTTP/2. Deployed Workers reach it through Cloudflare's proxy, 
 | Infisical secret | Purpose |
 | --- | --- |
 | `CLAUDE_CODE_OAUTH_TOKEN` | Model calls on your Claude subscription, from `claude setup-token` |
-| `CODEMODE_API_KEY` | The built-in `codemode` MCP server, on by default for every Bot until unticked in Details |
 | `BETTER_AUTH_SECRET` | Signs sessions |
 | `FLAREBOT_API_KEY` | Optional. Bearer key for the [API](#api). Also stored in `/gateway` with `FLAREBOT_API_URL` for the codemode gateway |
 | `FLAREBOT_ALLOWED_EMAILS` | Comma-separated addresses that can sign in |

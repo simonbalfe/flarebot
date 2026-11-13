@@ -1,4 +1,6 @@
+import { authorizeMcp, type McpOAuthState } from "@earendil-works/pi-mcp/oauth";
 import { DurableObject } from "cloudflare:workers";
+import { codemodeOAuth } from "./codemode-auth";
 import { claudeModelId, defaultEffort } from "./env";
 import { codemodeServer, isBuiltInServer, listTools, type McpServerConfig, type McpServerSummary, serverSummary } from "./mcp";
 import { addCli, type CliSummary, ensurePool, inspectSkill, type PoolKind, publishCli, publishSkill, removeItem, unpackUpload } from "./pool";
@@ -36,6 +38,7 @@ export interface GroupSummary {
 
 const defaultBotName = "Flare";
 const maxErrorChars = 200;
+const tokenRefreshMarginMs = 60_000;
 
 export class User extends DurableObject<Env> {
   async list(): Promise<BotSummary[]> {
@@ -209,11 +212,52 @@ export class User extends DurableObject<Env> {
   }
 
   mcpServers(): McpServerSummary[] {
-    return this.#mcpServers().map(serverSummary);
+    const connected = this.#codemodeState()?.tokens !== undefined;
+    return this.#mcpServers().map((server) => (isBuiltInServer(server.id) ? { ...serverSummary(server), hasToken: connected } : serverSummary(server)));
   }
 
   mcpServer(id: string): McpServerConfig | null {
-    return this.#mcpServers().find((server) => server.id === id) ?? null;
+    return this.#storedMcpServers().find((server) => server.id === id) ?? null;
+  }
+
+  async connectCodemode(origin: string): Promise<string> {
+    this.ctx.storage.kv.put("codemodeOrigin", origin);
+    this.ctx.storage.kv.delete("codemodeOAuth");
+    let target: URL | undefined;
+    const result = await authorizeMcp(this.#codemodeProvider((url) => { target = url; }), { serverUrl: this.env.CODEMODE_MCP_URL });
+    if (result !== "REDIRECT" || target === undefined) throw new Error("codemode did not ask for a sign-in");
+    return target.toString();
+  }
+
+  async finishCodemode(input: { code: string; state: string; iss?: string }): Promise<void> {
+    const provider = this.#codemodeProvider(() => undefined);
+    if (this.#codemodeState()?.oauthState !== input.state) throw new Error("codemode sign-in state does not match");
+    await authorizeMcp(provider, { serverUrl: this.env.CODEMODE_MCP_URL, authorizationCode: input.code, ...(input.iss === undefined ? {} : { iss: input.iss }) });
+  }
+
+  disconnectCodemode(): void {
+    this.ctx.storage.kv.delete("codemodeOAuth");
+  }
+
+  codemodeToken(refresh: boolean): Promise<string | null> {
+    return this.ctx.blockConcurrencyWhile(async () => {
+      const state = this.#codemodeState();
+      if (state?.tokens === undefined) return null;
+      const fresh = state.tokensExpireAt === undefined || state.tokensExpireAt - tokenRefreshMarginMs > Date.now();
+      if (fresh && !refresh) return state.tokens.access_token;
+      const provider = this.#codemodeProvider(() => undefined);
+      const result = await authorizeMcp(provider, { serverUrl: this.env.CODEMODE_MCP_URL }).catch(() => "REDIRECT" as const);
+      return result === "AUTHORIZED" ? ((await provider.tokens())?.access_token ?? null) : null;
+    });
+  }
+
+  #codemodeState(): McpOAuthState | undefined {
+    return this.ctx.storage.kv.get<McpOAuthState>("codemodeOAuth");
+  }
+
+  #codemodeProvider(onRedirect: (url: URL) => void) {
+    const origin = this.ctx.storage.kv.get<string>("codemodeOrigin") ?? this.env.FLAREBOT_APP_URL;
+    return codemodeOAuth(this.env, origin, { load: () => this.#codemodeState(), save: (state) => this.ctx.storage.kv.put("codemodeOAuth", state) }, onRedirect);
   }
 
   async addMcpServer(input: { name: string; url: string; description: string; token: string }): Promise<AddMcpResult> {

@@ -12,7 +12,8 @@ import { botAuthor, createFiles, type Files, localSave, scanLocalSkills, sendToC
 import { createTracer } from "./langfuse";
 import { type CliSummary, type OwnSkill, ownSkillsDir, type PoolKind, type SkillSummary } from "./pool";
 import type { PoolResult } from "./user";
-import { codemodeServer, type McpServerSummary, serverSummary } from "./mcp";
+import { codemodeAuthProvider } from "./codemode-auth";
+import { codemodeServer, isBuiltInServer, type McpServerSummary, serverSummary } from "./mcp";
 import { type PushMessage, pushBody } from "./push";
 import { defaultRepoName, errorMessage, type RepoResult } from "./repos";
 import { botExtension, type BotProfile, maxBotHops, type Takeover } from "./tools";
@@ -191,7 +192,10 @@ export class Bot extends DurableObject<Env> {
           tick: (kind, item) => this.ctx.storage.kv.put(kind, [...this.#ticked(kind).filter((current) => current.name !== item.name), item]),
           mcpServer: async (name) => {
             const summary = this.#mcpServers().find((server) => server.name.toLowerCase() === name.toLowerCase());
-            return summary === undefined ? null : this.env.USER.getByName(userName).mcpServer(summary.id);
+            if (summary === undefined) return null;
+            const user = this.env.USER.getByName(userName);
+            if (isBuiltInServer(summary.id)) return codemodeServer(this.env, { name: this.#profile().name, authProvider: codemodeAuthProvider((refresh) => user.codemodeToken(refresh)) });
+            return user.mcpServer(summary.id);
           },
           botHops: () => ctx.storage.kv.get<number>("botHops") ?? 0,
           isRoot: (conversationId) => conversationId === this.#root.id,

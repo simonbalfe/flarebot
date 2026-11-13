@@ -33,7 +33,7 @@ Inspired by the UX of [Grok Bot](https://docs.x.ai/grok-bot/overview).
 | Approvals, permissions, Secure Form, action log | Planned |
 | Skills and CLIs that each Bot creates and downloads for itself | Built, not yet run by a Bot |
 | Routines, dry run | Planned |
-| Remote MCP servers, added once and switched on per Bot, with the codemode gateway built in | Built, connect and tool call tested locally |
+| Remote MCP servers, added once and switched on per Bot, with the codemode gateway built in and signed in over OAuth | Built. OAuth sign-in to codemode not yet tested end to end |
 | One shared pool of CLIs and Agent Skills in Artifacts, ticked per Bot | Built, add, tick and remove tested locally |
 | Bots write their own CLIs in any language and skills, and publish them to the pool | Built, a Bot has published a Go CLI; skill publishing not yet run by a Bot |
 | Your own Mac as native Bot tools, through the `flarebot-local` daemon, with allowed folders and an approval dialog per action | Built, run by a Bot on live |

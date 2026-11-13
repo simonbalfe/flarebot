@@ -1,4 +1,4 @@
-import { type LlmContent, McpClient, StreamableHttpTransport, toLlmContent } from "@earendil-works/pi-mcp";
+import { type AuthProvider, type LlmContent, McpClient, StreamableHttpTransport, toLlmContent } from "@earendil-works/pi-mcp";
 
 const maxTextChars = 30_000;
 const clientInfo = { name: "flarebot", version: "0.1.0" };
@@ -12,6 +12,7 @@ export interface McpServerConfig {
   url: string;
   description: string;
   headers: Record<string, string>;
+  authProvider?: AuthProvider;
 }
 
 export interface McpServerSummary {
@@ -42,8 +43,9 @@ export function isBuiltInServer(id: string): boolean {
   return id === codemodeServerId;
 }
 
-export function codemodeServer(env: Env): McpServerConfig {
-  return { id: codemodeServerId, name: codemodeServerId, url: env.CODEMODE_MCP_URL, description: codemodeDescription, headers: { authorization: `Bearer ${env.CODEMODE_API_KEY}` } };
+export function codemodeServer(env: Env, agent?: { name: string; authProvider: AuthProvider }): McpServerConfig {
+  const base = { id: codemodeServerId, name: codemodeServerId, url: env.CODEMODE_MCP_URL, description: codemodeDescription };
+  return agent === undefined ? { ...base, headers: {} } : { ...base, headers: { "x-codemode-agent": agent.name }, authProvider: agent.authProvider };
 }
 
 function clip(content: LlmContent): LlmContent {
@@ -53,7 +55,7 @@ function clip(content: LlmContent): LlmContent {
 
 async function withClient<T>(server: McpServerConfig, work: (client: McpClient) => Promise<T>): Promise<T> {
   const client = new McpClient(clientInfo);
-  await client.connect(new StreamableHttpTransport({ url: server.url, headers: server.headers, openGetStream: false }));
+  await client.connect(new StreamableHttpTransport({ url: server.url, headers: server.headers, openGetStream: false, ...(server.authProvider === undefined ? {} : { authProvider: server.authProvider }) }));
   try {
     return await work(client);
   } finally {

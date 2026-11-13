@@ -57,6 +57,7 @@ export const api = {
   mcpServers: () => call<{ servers: McpServerSummary[] }>("/mcp"),
   addMcpServer: (input: { name: string; url: string; token: string }) => call<{ server: McpServerSummary; tools: number }>("/mcp", { method: "POST", body: JSON.stringify(input) }),
   removeMcpServer: (serverId: string) => call<void>(`/mcp/${encodeURIComponent(serverId)}`, { method: "DELETE" }),
+  connectCodemode: () => call<{ url: string }>("/mcp/codemode/connect", { method: "POST" }),
   clis: () => call<{ clis: CliSummary[] }>("/clis"),
   skills: () => call<{ skills: SkillSummary[] }>("/skills"),
   addCli: (name: string, description: string, file: Blob) => upload(`/api/clis/${encodeURIComponent(name)}?${new URLSearchParams({ description })}`, "PUT", file),

@@ -197,7 +197,7 @@ function BotList(props: ChatListProps) {
   );
 }
 
-function McpSection({ servers, enabled, onToggle, onAdd, onRemove }: { servers: McpServerSummary[]; enabled: string[]; onToggle: (id: string) => void; onAdd: (input: { name: string; url: string; token: string }) => Promise<boolean>; onRemove: (id: string) => void }) {
+function McpSection({ servers, enabled, onToggle, onAdd, onRemove, onConnect }: { servers: McpServerSummary[]; enabled: string[]; onToggle: (id: string) => void; onAdd: (input: { name: string; url: string; token: string }) => Promise<boolean>; onRemove: (id: string) => void; onConnect: () => void }) {
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState({ name: "", url: "", token: "" });
@@ -223,7 +223,7 @@ function McpSection({ servers, enabled, onToggle, onAdd, onRemove }: { servers: 
             </span>
             <span className="min-w-0 truncate">{server.name}</span>
           </button>
-          {server.builtIn ? null : <button type="button" aria-label={`Remove ${server.name}`} className={iconButton} onClick={() => onRemove(server.id)}><XIcon size={12} /></button>}
+          {server.builtIn ? (server.hasToken ? null : <Button type="button" size="sm" className={submitButton} onClick={onConnect}>Connect</Button>) : <button type="button" aria-label={`Remove ${server.name}`} className={iconButton} onClick={() => onRemove(server.id)}><XIcon size={12} /></button>}
         </div>
       ))}
       {adding ? (
@@ -394,7 +394,7 @@ function SkillForm({ onAdd, onDone }: { onAdd: (file: File) => Promise<boolean>;
   );
 }
 
-function DetailsPanel({ view, index, models, efforts, mcpServers, onModel, onEffort, onClear, onRole, onForget, onToggleMcp, onAddMcp, onRemoveMcp, children }: { view: BotView; index: number; models: PickerOption[]; efforts: PickerOption[]; mcpServers: McpServerSummary[]; onModel: (model: string) => void; onEffort: (effort: string) => void; onClear: () => void; onRole: (role: string) => void; onForget: (index: number) => void; onToggleMcp: (id: string) => void; onAddMcp: (input: { name: string; url: string; token: string }) => Promise<boolean>; onRemoveMcp: (id: string) => void; children: ReactNode }) {
+function DetailsPanel({ view, index, models, efforts, mcpServers, onModel, onEffort, onClear, onRole, onForget, onToggleMcp, onAddMcp, onRemoveMcp, onConnectCodemode, children }: { view: BotView; index: number; models: PickerOption[]; efforts: PickerOption[]; mcpServers: McpServerSummary[]; onModel: (model: string) => void; onEffort: (effort: string) => void; onClear: () => void; onRole: (role: string) => void; onForget: (index: number) => void; onToggleMcp: (id: string) => void; onAddMcp: (input: { name: string; url: string; token: string }) => Promise<boolean>; onRemoveMcp: (id: string) => void; onConnectCodemode: () => void; children: ReactNode }) {
   const modelItems = models.map((model) => ({ value: model.id, label: model.label }));
   const effortItems = efforts.map((effort) => ({ value: effort.id, label: effort.label }));
   const [role, setRole] = useState(view.profile.role);
@@ -427,7 +427,7 @@ function DetailsPanel({ view, index, models, efforts, mcpServers, onModel, onEff
         <span className="text-fb-preview">Artifacts repo</span>
         <span className="font-mono text-xs [overflow-wrap:anywhere]">{view.workspace.repo}</span>
       </div>
-      <McpSection servers={mcpServers} enabled={view.mcpServers.map((server) => server.id)} onToggle={onToggleMcp} onAdd={onAddMcp} onRemove={onRemoveMcp} />
+      <McpSection servers={mcpServers} enabled={view.mcpServers.map((server) => server.id)} onToggle={onToggleMcp} onAdd={onAddMcp} onRemove={onRemoveMcp} onConnect={onConnectCodemode} />
       {children}
       <div className="flex flex-col">
         <span className="mb-1 text-fb-preview">Memory</span>
@@ -1025,6 +1025,7 @@ function Workspace() {
                   mcpServers={mcpServers}
                   onToggleMcp={(serverId) => void toggleMcp(shown, serverId)}
                   onAddMcp={addMcp}
+                  onConnectCodemode={() => void guard(api.connectCodemode).then((result) => { if (result !== undefined) window.location.href = result.url; })}
                   onRemoveMcp={(serverId) => void guard(() => api.removeMcpServer(serverId)).then(() => Promise.all([loadMcp(), currentId !== null ? loadView(currentId, threadId) : undefined]))}
                 >
                   <PoolSection
