@@ -1,22 +1,19 @@
+import { useQueries } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, type BotSummary, type BotView } from "../api";
+import type { BotSummary, BotView } from "../api";
 import { botColors, palette } from "../Avatar";
+import { factoryViewQuery } from "../queries";
 import { activityOf } from "./activity";
 import { FactoryScene, type ScreenPoint } from "./scene";
 import { stationTags } from "./world";
 
-const viewPollMs = 1500;
-
-type Poll = <T>(key: string, work: () => Promise<T>) => Promise<T | undefined>;
-
-export function FactoryView({ bots, poll, onOpen }: { bots: BotSummary[]; poll: Poll; onOpen: (id: string) => void }) {
+export function FactoryView({ bots, onOpen }: { bots: BotSummary[]; onOpen: (id: string) => void }) {
   const container = useRef<HTMLDivElement>(null);
   const scene = useRef<FactoryScene | null>(null);
   const labels = useRef(new Map<string, HTMLElement>());
   const seenHandoffs = useRef(new Map<string, Set<string>>());
   const open = useRef(onOpen);
   open.current = onOpen;
-  const [views, setViews] = useState<ReadonlyMap<string, BotView>>(new Map());
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
@@ -41,25 +38,16 @@ export function FactoryView({ bots, poll, onOpen }: { bots: BotSummary[]; poll: 
     }
   }, []);
 
-  const busyIds = bots.filter((bot) => bot.typing).map((bot) => bot.id).join(",");
-  useEffect(() => {
-    const ids = busyIds === "" ? [] : busyIds.split(",");
-    let cancelled = false;
-    const load = async () => {
-      const results = await Promise.all(ids.map((id) => poll(`factory:${id}`, () => api.bot(id))));
-      if (cancelled) return;
-      setViews((current) => new Map(ids.flatMap((id, index) => {
-        const view = results[index] ?? current.get(id);
-        return view === undefined ? [] : [[id, view]];
-      })));
-    };
-    void load();
-    const timer = setInterval(() => void load(), viewPollMs);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [busyIds, poll]);
+  const busyIds = bots.filter((bot) => bot.typing).map((bot) => bot.id);
+  const results = useQueries({ queries: busyIds.map((id) => factoryViewQuery(id)) });
+  const loadedAt = results.map((result) => result.dataUpdatedAt).join(",");
+  const views = useMemo<ReadonlyMap<string, BotView>>(
+    () => new Map(busyIds.flatMap((id, index) => {
+      const view = results[index]?.data;
+      return view === undefined ? [] : [[id, view] as const];
+    })),
+    [busyIds.join(","), loadedAt],
+  );
 
   const activities = useMemo(() => new Map(bots.map((bot) => [bot.id, activityOf(bot, views.get(bot.id))])), [bots, views]);
 

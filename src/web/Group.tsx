@@ -1,13 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { api, type BotSummary, type GroupSummary, type GroupView } from "./api";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef, useState } from "react";
+import { api, type BotSummary, type GroupSummary } from "./api";
 import { Avatar, type MentionOption } from "./Avatar";
 import { Composer } from "./Composer";
 import { formatClock } from "./format";
 import { useIsMobile } from "./mobile";
+import { groupQuery, keys, showError } from "./queries";
 import { BotBubble, MyBubble, Thinking } from "./Transcript";
 
-const busyPollMs = 800;
-const idlePollMs = 3000;
 const timeGapMs = 5 * 60 * 1000;
 const systemSender = "system";
 
@@ -24,9 +24,10 @@ export function GroupAvatars({ memberIds, bots }: { memberIds: string[]; bots: B
   );
 }
 
-export function GroupPane({ group, bots, poll, onError }: { group: GroupSummary; bots: BotSummary[]; poll: <T>(key: string, work: () => Promise<T>) => Promise<T | undefined>; onError: (error: unknown) => void }) {
+export function GroupPane({ group, bots }: { group: GroupSummary; bots: BotSummary[] }) {
   const mobile = useIsMobile();
-  const [view, setView] = useState<GroupView | null>(null);
+  const queries = useQueryClient();
+  const view = useQuery(groupQuery(group.id)).data ?? null;
   const [pending, setPending] = useState<string | null>(null);
   const bottom = useRef<HTMLDivElement>(null);
   const members = group.memberIds.flatMap((id) => bots.filter((bot) => bot.id === id));
@@ -34,16 +35,7 @@ export function GroupPane({ group, bots, poll, onError }: { group: GroupSummary;
   const mentions: MentionOption[] = [...members.map((bot) => ({ name: bot.name, index: bots.indexOf(bot) })), { name: "everyone", index: null }];
   const messageCount = view?.messages.length ?? 0;
 
-  const load = useCallback(async () => {
-    const result = await poll("group", () => api.group(group.id));
-    if (result !== undefined) setView(result);
-  }, [group.id, poll]);
-
-  useEffect(() => {
-    void load();
-    const timer = setInterval(() => void load(), typing.length > 0 ? busyPollMs : idlePollMs);
-    return () => clearInterval(timer);
-  }, [load, typing.length]);
+  const load = () => queries.invalidateQueries({ queryKey: keys.group(group.id) });
 
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: "end" });
@@ -55,7 +47,7 @@ export function GroupPane({ group, bots, poll, onError }: { group: GroupSummary;
       await api.sendGroup(group.id, text);
       await load();
     } catch (error) {
-      onError(error);
+      showError(error);
     }
     setPending(null);
   };
@@ -64,7 +56,7 @@ export function GroupPane({ group, bots, poll, onError }: { group: GroupSummary;
     try {
       await api.stopGroup(group.id);
     } catch (error) {
-      onError(error);
+      showError(error);
     }
   };
 

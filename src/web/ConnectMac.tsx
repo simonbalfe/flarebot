@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { api, type MacStatus } from "./api";
 import { Avatar } from "./Avatar";
@@ -11,7 +12,8 @@ function phaseFor(status: MacStatus, userCode: string): Phase {
 }
 
 export function ConnectMac() {
-  const userCode = (new URLSearchParams(window.location.search).get("code") ?? "").toUpperCase();
+  const userCode = (useSearch({ from: "/connect-mac" }).code ?? "").toUpperCase();
+  const navigate = useNavigate();
   const [phase, setPhase] = useState<Phase>({ kind: "loading" });
 
   useEffect(() => {
@@ -47,7 +49,7 @@ export function ConnectMac() {
         ) : null}
         {phase.kind === "connecting" ? <Button type="button" className="w-full" disabled>Connecting…</Button> : null}
         {phase.kind === "connected" || phase.kind === "expired" ? (
-          <Button type="button" variant="secondary" className="w-full" onClick={() => window.location.assign("/")}>Open flarebot</Button>
+          <Button type="button" variant="secondary" className="w-full" onClick={() => void navigate({ to: "/" })}>Open flarebot</Button>
         ) : null}
       </div>
     </main>

@@ -95,9 +95,9 @@ The Android and iPhone apps are [Capacitor](https://capacitorjs.com) shells arou
 `POST /api/bots/:id/clear` stops the Bot and starts a new context for Main with Pi's `reset`. Memory, the folder, threads and group chats stay.
 
 1. `POST /api/bots/:id/messages` submits to the Bot's Pi conversation and returns 202.
-2. The UI polls `GET /api/bots/:id` every 800 ms while the Bot is busy.
+2. The UI polls `GET /api/bots/:id` every 800 ms while the Bot is busy, and every 3 seconds otherwise. Every poll is a TanStack Query query in `src/web/queries.ts`, keyed by Bot and thread, and an action refreshes the queries it changes. A poll error shows only after 15 seconds of failures while the page is visible; any other failed load shows at once.
 3. A message sent during a turn steers it. Pi holds it in the conversation's `pi.inbox` doc until the current tool round ends. `toTranscriptView` in `src/worker/view.ts` shows inbox items at the end of the transcript with `queued:<submission id>` IDs, and moves them into place once Pi does.
-4. The UI shows each sent message as a pending bubble until the POST and the next view load finish. It hides a pending bubble as soon as the view holds more matching user messages than before the send, so a message never shows twice. A view response older than one already applied is dropped. A failed send puts the text back in the composer.
+4. The UI shows each sent message as a pending bubble until the POST and the next view load finish. It hides a pending bubble as soon as the view holds more matching user messages than before the send, so a message never shows twice. Each Bot and thread has its own query, so a slow response can never land in another chat. A failed send puts the text back in the composer.
 
 ### Using the computer
 
@@ -609,7 +609,7 @@ Below 768px wide the layout follows iOS Messages:
 1. The chat list is the root screen, with a large title and search.
 2. Tapping a chat pushes it with a back chevron and the Bot's avatar and name centred. Tapping the name opens Details.
 3. Details and Computer open as full-screen sheets with **Done**.
-4. Each step adds a browser history entry, so the Android back gesture and the browser back button go sheet → chat → list.
+4. The open chat, thread, panel and 3D view live in the URL (`/?bot=…&thread=…&panel=details`, `&view=3d`), routed by TanStack Router in `src/web/router.tsx`. On phones each step adds a history entry, so the Android back gesture and the browser back button go sheet → chat → list. A chat opened straight from a link or notification first adds the list behind it, so back still lands on the list. On desktop, switching chats adds an entry and opening a panel replaces it.
 5. Bubbles widen to 92% of the screen, and Markdown tables keep whole words and scroll sideways instead of squeezing columns.
 6. Long-press a row for Edit and Delete; inputs use 16px text so focusing them doesn't zoom; the composer doesn't grab focus on phones.
 7. Take over opens full screen. While you're in control, noVNC's own control handle stays on the left edge, so its on-screen keyboard is reachable. The app isn't locked to portrait, so turning the phone sideways shows the desktop larger.
