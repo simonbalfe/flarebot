@@ -1,9 +1,11 @@
 import { Button, Collapsible } from "@cloudflare/kumo";
-import { ArrowBendUpRightIcon, CaretRightIcon, HandPalmIcon, RobotIcon } from "@phosphor-icons/react";
+import { ArrowBendUpRightIcon, CaretRightIcon, ClockClockwiseIcon, HandPalmIcon, RobotIcon } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { BotSummary, BotView, TranscriptItem } from "./api";
+import { ApprovalCard, type Decision, SecretCard } from "./Approvals";
+import { ConnectCard } from "./Apps";
 import { Avatar, botMentions, colorOf, MentionChip, type MentionOption } from "./Avatar";
 import { formatClock } from "./format";
 
@@ -94,6 +96,15 @@ function PeerMessage({ direction, name, text, bots }: { direction: "from" | "to"
   );
 }
 
+function RoutineLine({ title, text }: { title: string; text: string }) {
+  return (
+    <div className={systemLine} title={text}>
+      <ClockClockwiseIcon size={12} />
+      {title}
+    </div>
+  );
+}
+
 function RowView({ row, live, bots }: { row: Row; live: boolean; bots: BotSummary[] }) {
   switch (row.kind) {
     case "user":
@@ -102,6 +113,10 @@ function RowView({ row, live, bots }: { row: Row; live: boolean; bots: BotSummar
       return <BotBubble text={row.text} />;
     case "peer":
       return <PeerMessage direction="from" name={row.from} text={row.text} bots={bots} />;
+    case "routine":
+      return <RoutineLine title={row.title} text={row.text} />;
+    case "notice":
+      return <div className={systemLine}>{row.label} · {row.text}</div>;
     case "handoff":
       return <PeerMessage direction="to" name={row.to} text={row.text} bots={bots} />;
     case "tools":
@@ -124,14 +139,22 @@ export function Thinking({ index }: { index: number }) {
   );
 }
 
-export function Transcript({ view, bots, pending, onTakeOver }: { view: BotView; bots: BotSummary[]; pending: { key: string; text: string }[]; onTakeOver: () => void }) {
+export interface CardActions {
+  onDecide: (approvalId: string, decision: Decision) => void;
+  onSubmitSecret: (requestId: string, value: string) => Promise<boolean>;
+  onDismissSecret: (requestId: string) => void;
+  onConnect: (serverId: string, requestId: string) => void;
+  onDismissConnection: (requestId: string) => void;
+}
+
+export function Transcript({ view, bots, pending, onTakeOver, cards }: { view: BotView; bots: BotSummary[]; pending: { key: string; text: string }[]; onTakeOver: () => void; cards: CardActions }) {
   const bottom = useRef<HTMLDivElement>(null);
   const rows = groupTools(view.items);
   const botIndex = Math.max(bots.findIndex((bot) => bot.id === view.profile.id), 0);
 
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: "end" });
-  }, [rows.length, view.partial, pending.length, view.takeover, view.busy]);
+  }, [rows.length, view.partial, pending.length, view.takeover, view.busy, view.approvals.length, view.secretRequests.length, view.connectionRequests.length]);
 
   let previousAt = 0;
   const empty = rows.length === 0 && pending.length === 0 && !view.busy;
@@ -163,6 +186,9 @@ export function Transcript({ view, bots, pending, onTakeOver }: { view: BotView;
             <Button size="sm" className="mt-1 w-fit rounded-full! bg-fb-action! font-semibold! text-fb-action-text!" onClick={onTakeOver}>Open computer</Button>
           </div>
         )}
+        {view.approvals.map((approval) => <ApprovalCard key={approval.id} approval={approval} onDecide={(decision) => cards.onDecide(approval.id, decision)} />)}
+        {view.secretRequests.map((request) => <SecretCard key={request.id} request={request} onSubmit={(value) => cards.onSubmitSecret(request.id, value)} onDismiss={() => cards.onDismissSecret(request.id)} />)}
+        {view.connectionRequests.map((request) => <ConnectCard key={request.id} request={request} onConnect={() => cards.onConnect(request.serverId, request.id)} onDismiss={() => cards.onDismissConnection(request.id)} />)}
         {view.error === null ? null : <div className="px-3 text-xs leading-4 text-kumo-danger [overflow-wrap:anywhere]">{view.error}</div>}
         <div ref={bottom} />
       </div>

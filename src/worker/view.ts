@@ -1,10 +1,14 @@
 import type { AssistantMessage, Message } from "@earendil-works/pi-ai";
+import { parseNotice } from "./approvals";
+import { parseRoutineMessage } from "./routines";
 import { type ConversationView, type InboxState, type LiveState, ResetEntry, type SubmissionRecord } from "@earendil-works/pi-durable";
 
 export type TranscriptItem =
   | { kind: "user"; id: string; text: string; at: number }
   | { kind: "assistant"; id: string; text: string; at: number }
   | { kind: "peer"; id: string; from: string; text: string; at: number }
+  | { kind: "routine"; id: string; title: string; text: string; at: number }
+  | { kind: "notice"; id: string; label: string; text: string; at: number }
   | { kind: "handoff"; id: string; to: string; text: string; at: number }
   | { kind: "tool"; id: string; name: string; detail: string; at: number }
   | { kind: "cost"; id: string; cost: number; tools: number; at: number };
@@ -48,6 +52,10 @@ function queuedTextOf(content: unknown): string {
 }
 
 function userItem(id: string, text: string, at: number): TranscriptItem {
+  const routine = parseRoutineMessage(text);
+  if (routine !== null) return { kind: "routine", id, title: routine.title, text: routine.text, at };
+  const notice = parseNotice(text);
+  if (notice !== null) return { kind: "notice", id, label: notice.label, text: notice.text, at };
   const peer = text.match(botMessagePattern);
   return peer === null ? { kind: "user", id, text, at } : { kind: "peer", id, from: peer[1] ?? "", text: peer[2] ?? "", at };
 }

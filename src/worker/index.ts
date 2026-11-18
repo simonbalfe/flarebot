@@ -8,10 +8,14 @@ import modelServerPackage from "../../model-container/package.json?raw";
 import modelServerSource from "../../model-container/server.ts?raw";
 import { macInstallScript } from "./mac-install";
 import { doc, openApiDocument } from "./openapi";
-import { codemodeCallbackPath } from "./codemode-auth";
+import { catalog, catalogEntry, clientEnvPrefix } from "./catalog";
+import { clientMetadataDocument, clientMetadataPath, codemodeCallbackPath, mcpCallbackPath } from "./codemode-auth";
 import { cliNamePattern, readSkill } from "./pool";
 import { pushDeviceSchema } from "./native-push";
 import { pushSubscriptionSchema } from "./push";
+import type { RoutinePatch } from "./bot";
+import type { RoutineSchedule } from "./routines";
+import { secretNamePattern } from "./approvals";
 import { type AppEnv, computerName, effortLabels, efforts, macName, modelLabels, models, userName } from "./env";
 
 export { WorkspaceServiceProxy } from "@cloudflare/computer";
@@ -80,6 +84,34 @@ const resetQuery = z.object({ wipe: z.enum(["true", "false"]).default("false") }
 const pushUnsubscribeBody = z.object({ endpoint: z.url() });
 const pushDeviceRemoveBody = pushDeviceSchema.pick({ token: true });
 const vncPrefix = "/api/computer/vnc";
+const maxHookBytes = 64 * 1024;
+const routineId = z.string().regex(/^[0-9a-f]{8}$/);
+const hookToken = z.string().regex(/^[0-9a-f]{48}$/);
+const routineBase = {
+  title: z.string().trim().min(1).max(80),
+  prompt: z.string().trim().min(1).max(4000),
+  scheduleText: z.string().trim().min(1).max(120),
+  timezone: z.string().trim().min(1).max(64),
+};
+const routineWhen = { cron: z.string().trim().min(9).max(120).optional(), at: z.iso.datetime({ offset: true }).optional() };
+const newRoutineBody = z.object({ ...routineBase, ...routineWhen }).refine((body) => (body.cron === undefined) !== (body.at === undefined), "Give exactly one of cron or at");
+const routinePatchBody = z.object(routineBase).partial().extend({ ...routineWhen, paused: z.boolean().optional() }).refine((body) => body.cron === undefined || body.at === undefined, "Give at most one of cron or at");
+const decisionBody = z.object({ decision: z.enum(["once", "always", "deny"]) });
+const secretValueBody = z.object({ value: z.string().min(1).max(10_000) });
+const askFirstBody = z.object({ enabled: z.boolean() });
+const ruleBody = z.object({ rule: z.string().min(1).max(200) });
+const secretName = z.string().regex(secretNamePattern);
+const secretAccessBody = z.object({ allowed: z.boolean() });
+const connectBody = z.object({ botId: z.string().optional(), requestId: z.string().optional() });
+const addAppBody = z.object({ token: z.string().trim().max(4000).default("") });
+const hookStatus = { started: 202, not_found: 404, paused: 409, busy: 409, too_soon: 429 } as const;
+const hookMessages = { started: "Started", not_found: "Not found", paused: "This routine is paused", busy: "The previous run has not finished", too_soon: "Wait a minute between webhook runs" } as const;
+
+function scheduleFrom(body: { cron?: string | undefined; at?: string | undefined }): RoutineSchedule | undefined {
+  if (body.cron !== undefined) return { kind: "cron", cron: body.cron };
+  if (body.at !== undefined) return { kind: "once", at: Date.parse(body.at) };
+  return undefined;
+}
 
 const app = new Hono<AppEnv>();
 
@@ -120,6 +152,19 @@ app.get("/api/mac/whoami", async (c) => {
 });
 
 app.get("/api/mac/connect", (c) => mac(c.env).fetch(c.req.raw));
+
+app.post("/api/hooks/routines/:botId/:routineId/:token", async (c) => {
+  const botId = z.uuid().safeParse(c.req.param("botId"));
+  const id = routineId.safeParse(c.req.param("routineId"));
+  const token = hookToken.safeParse(c.req.param("token"));
+  if (!botId.success || !id.success || !token.success || !(await user(c.env).has(botId.data))) return c.json({ error: hookMessages.not_found }, 404);
+  if (Number(c.req.header("content-length") ?? 0) > maxHookBytes) return c.json({ error: "Payload too large" }, 413);
+  const raw = (await c.req.text()).slice(0, maxHookBytes);
+  const result = await c.env.BOT.getByName(botId.data).triggerRoutineHook(id.data, token.data, raw.trim() === "" ? null : raw);
+  return c.json(result === "started" ? { status: "started" } : { error: hookMessages[result] }, hookStatus[result]);
+});
+
+app.get(clientMetadataPath, (c) => c.json(clientMetadataDocument(new URL(c.req.url).origin), 200, { "cache-control": "public, max-age=300" }));
 
 app.use("/api/*", requireSession);
 
@@ -379,6 +424,71 @@ app.delete("/api/mcp/codemode", requireApp, async (c) => {
   return c.body(null, 204);
 });
 
+function errorText(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.length > 200 ? `${message.slice(0, 200)}…` : message;
+}
+
+function appReady(env: Env, auth: string, id: string): boolean {
+  if (auth !== "client") return true;
+  const clientId: unknown = Reflect.get(env, `${clientEnvPrefix(id)}_CLIENT_ID`);
+  return typeof clientId === "string" && clientId !== "";
+}
+
+app.get("/api/apps", doc({ id: "listApps", tag: "Apps", summary: "List the app library", description: "auth is oauth (one-click sign-in), cimd (one-click on an https deployment), client (needs a registered OAuth app in Infisical), none or apikey. ready is false when a client app has no credentials yet.", returns: "apps: id, name, category, url, auth, description, domain, docs, ready, and serverId and connected once added" }), async (c) => {
+  const servers = await user(c.env).mcpServers();
+  return c.json({
+    apps: catalog.map((entry) => {
+      const server = servers.find((candidate) => candidate.catalogId === entry.id);
+      return { ...entry, ready: appReady(c.env, entry.auth, entry.id), serverId: server?.id ?? null, connected: server === undefined ? false : server.auth === "token" || server.hasToken };
+    }),
+  });
+});
+
+app.post("/api/apps/:appId", doc({ id: "addApp", tag: "Apps", summary: "Add an app from the library", description: "Sign-in apps are added unconnected; call connectApp next. apikey apps need token.", body: addAppBody, returns: "server" }), async (c) => {
+  const entry = catalogEntry(c.req.param("appId"));
+  if (entry === undefined) throw new HTTPException(404, { message: "App not found" });
+  const body = addAppBody.parse(await c.req.json().catch(() => ({})));
+  if (entry.auth === "apikey" && body.token === "") throw new HTTPException(400, { message: `${entry.name} needs an API key` });
+  const result = entry.auth === "none" || entry.auth === "apikey"
+    ? await user(c.env).addMcpServer({ name: entry.name, url: entry.url, description: entry.description, token: body.token, catalogId: entry.id })
+    : await user(c.env).addOAuthServer({ name: entry.name, url: entry.url, description: entry.description, catalogId: entry.id });
+  return result.ok ? c.json({ server: result.server }, 201) : c.json({ error: result.error }, 400);
+});
+
+app.post("/api/mcp/:id/connect", requireApp, async (c) => {
+  const body = connectBody.parse(await c.req.json().catch(() => ({})));
+  const request = body.botId !== undefined && body.requestId !== undefined && (await user(c.env).has(body.botId)) ? { botId: body.botId, requestId: body.requestId } : null;
+  try {
+    return c.json({ url: await user(c.env).connectServer(c.req.param("id"), new URL(c.req.url).origin, request) });
+  } catch (error) {
+    return c.json({ error: errorText(error) }, 400);
+  }
+});
+
+app.get(mcpCallbackPath, requireApp, async (c) => {
+  const query = codemodeCallbackQuery.safeParse(c.req.query());
+  if (!query.success) return c.redirect(`/?${new URLSearchParams({ connectError: c.req.query("error_description") ?? c.req.query("error") ?? "Sign-in failed" })}`);
+  const finished = await user(c.env).finishServerAuth(query.data).catch((error: unknown) => errorText(error));
+  if (typeof finished === "string") return c.redirect(`/?${new URLSearchParams({ connectError: finished })}`);
+  if (finished.request !== null) {
+    await c.env.BOT.getByName(finished.request.botId).connectionDone(finished.request.requestId);
+    return c.redirect(`/?${new URLSearchParams({ bot: finished.request.botId })}`);
+  }
+  return c.redirect(`/?${new URLSearchParams({ connected: finished.name })}`);
+});
+
+app.delete("/api/mcp/:id/connection", requireApp, async (c) => {
+  await user(c.env).disconnectServer(c.req.param("id"));
+  return c.body(null, 204);
+});
+
+app.delete("/api/bots/:id/connection-requests/:requestId", requireApp, async (c) => {
+  const bot = await ownedBot(c.env, c.req.param("id"));
+  if (!(await bot.dismissConnection(c.req.param("requestId")))) throw new HTTPException(404, { message: "Request not found" });
+  return c.body(null, 204);
+});
+
 app.delete("/api/mcp/:id", doc({ id: "removeMcpServer", tag: "MCP servers", summary: "Remove a remote MCP server" }), async (c) => {
   await user(c.env).removeMcpServer(c.req.param("id"));
   return c.body(null, 204);
@@ -388,6 +498,101 @@ app.put("/api/bots/:id/mcp", doc({ id: "setBotMcpServers", tag: "Bots", summary:
   const body = botMcpBody.parse(await c.req.json());
   const bot = await ownedBot(c.env, c.req.param("id"));
   return c.json({ servers: await bot.setMcpServers(body.serverIds) });
+});
+
+app.get("/api/bots/:id/routines", doc({ id: "listRoutines", tag: "Routines", summary: "List a Bot's routines", returns: "routines: id, title, prompt, scheduleText, schedule, timezone, paused, nextAt, runs (the last 20) and hookPath, the private webhook path that starts the routine with POST" }), async (c) => {
+  const bot = await ownedBot(c.env, c.req.param("id"));
+  return c.json({ routines: await bot.routines() });
+});
+
+app.post("/api/bots/:id/routines", doc({ id: "createRoutine", tag: "Routines", summary: "Create a routine", description: "cron has 5 fields in the routine's timezone, at least 15 minutes apart. at is a single run.", body: newRoutineBody, returns: "routine" }), async (c) => {
+  const body = newRoutineBody.parse(await c.req.json());
+  const bot = await ownedBot(c.env, c.req.param("id"));
+  const schedule = scheduleFrom(body);
+  if (schedule === undefined) throw new HTTPException(400, { message: "Give exactly one of cron or at" });
+  const result = await bot.createRoutine({ title: body.title, prompt: body.prompt, scheduleText: body.scheduleText, timezone: body.timezone, schedule });
+  return result.ok ? c.json({ routine: result.routine }, 201) : c.json({ error: result.error }, 400);
+});
+
+app.patch("/api/bots/:id/routines/:routineId", doc({ id: "updateRoutine", tag: "Routines", summary: "Change, pause or resume a routine", body: routinePatchBody, returns: "routine" }), async (c) => {
+  const body = routinePatchBody.parse(await c.req.json());
+  const bot = await ownedBot(c.env, c.req.param("id"));
+  const schedule = scheduleFrom(body);
+  const patch: RoutinePatch = {};
+  if (body.title !== undefined) patch.title = body.title;
+  if (body.prompt !== undefined) patch.prompt = body.prompt;
+  if (body.scheduleText !== undefined) patch.scheduleText = body.scheduleText;
+  if (body.timezone !== undefined) patch.timezone = body.timezone;
+  if (body.paused !== undefined) patch.paused = body.paused;
+  if (schedule !== undefined) patch.schedule = schedule;
+  const result = await bot.updateRoutine(c.req.param("routineId"), patch);
+  return result.ok ? c.json({ routine: result.routine }) : c.json({ error: result.error }, 400);
+});
+
+app.post("/api/bots/:id/routines/:routineId/run", doc({ id: "runRoutine", tag: "Routines", summary: "Run a routine now", description: "Does real work. The result lands in the Bot's main chat.", returns: "routine" }), async (c) => {
+  const bot = await ownedBot(c.env, c.req.param("id"));
+  const result = await bot.runRoutine(c.req.param("routineId"));
+  return result.ok ? c.json({ routine: result.routine }, 202) : c.json({ error: result.error }, 409);
+});
+
+app.delete("/api/bots/:id/routines/:routineId", doc({ id: "deleteRoutine", tag: "Routines", summary: "Delete a routine" }), async (c) => {
+  const bot = await ownedBot(c.env, c.req.param("id"));
+  if (!(await bot.deleteRoutine(c.req.param("routineId")))) throw new HTTPException(404, { message: "Routine not found" });
+  return c.body(null, 204);
+});
+
+app.post("/api/bots/:id/approvals/:approvalId", requireApp, async (c) => {
+  const body = decisionBody.parse(await c.req.json());
+  const bot = await ownedBot(c.env, c.req.param("id"));
+  if (!(await bot.decideApproval(c.req.param("approvalId"), body.decision))) throw new HTTPException(404, { message: "Approval not found" });
+  return c.body(null, 204);
+});
+
+app.post("/api/bots/:id/secret-requests/:requestId", requireApp, async (c) => {
+  const body = secretValueBody.parse(await c.req.json());
+  const bot = await ownedBot(c.env, c.req.param("id"));
+  if (!(await bot.submitSecret(c.req.param("requestId"), body.value))) throw new HTTPException(404, { message: "Request not found" });
+  return c.body(null, 204);
+});
+
+app.delete("/api/bots/:id/secret-requests/:requestId", requireApp, async (c) => {
+  const bot = await ownedBot(c.env, c.req.param("id"));
+  if (!(await bot.dismissSecret(c.req.param("requestId")))) throw new HTTPException(404, { message: "Request not found" });
+  return c.body(null, 204);
+});
+
+app.put("/api/bots/:id/ask-first", requireApp, async (c) => {
+  const body = askFirstBody.parse(await c.req.json());
+  const bot = await ownedBot(c.env, c.req.param("id"));
+  await bot.setAskFirst(body.enabled);
+  return c.body(null, 204);
+});
+
+app.delete("/api/bots/:id/always-allow", doc({ id: "forgetAlwaysAllow", tag: "Approvals", summary: "Stop always allowing an action for a Bot", body: ruleBody }), async (c) => {
+  const body = ruleBody.parse(await c.req.json());
+  const bot = await ownedBot(c.env, c.req.param("id"));
+  await bot.forgetRule(body.rule);
+  return c.body(null, 204);
+});
+
+app.get("/api/bots/:id/actions", doc({ id: "listActions", tag: "Approvals", summary: "Read a Bot's action log", description: "Newest first. Approvals asked and decided, gated actions that ran, and secrets used.", returns: "actions: id, at, kind, summary and outcome" }), async (c) => {
+  const bot = await ownedBot(c.env, c.req.param("id"));
+  return c.json({ actions: await bot.actions(200) });
+});
+
+app.get("/api/vault", doc({ id: "listSecrets", tag: "Vault", summary: "List vault secret names and which Bots can use each", returns: "secrets: name, botIds and createdAt. Values are never returned." }), async (c) => c.json({ secrets: await user(c.env).secrets() }));
+
+app.put("/api/vault/:name/bots/:id", requireApp, async (c) => {
+  const name = secretName.parse(c.req.param("name"));
+  const body = secretAccessBody.parse(await c.req.json());
+  await ownedBot(c.env, c.req.param("id"));
+  if (!(await user(c.env).setSecretAccess(name, c.req.param("id"), body.allowed))) throw new HTTPException(404, { message: "Secret not found" });
+  return c.body(null, 204);
+});
+
+app.delete("/api/vault/:name", requireApp, async (c) => {
+  await user(c.env).deleteSecret(secretName.parse(c.req.param("name")));
+  return c.body(null, 204);
 });
 
 function sendsJson(c: Context<AppEnv>): boolean {

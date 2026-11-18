@@ -459,10 +459,58 @@ The built-in `codemode` server signs in with standard MCP OAuth, like any other 
 
 If the gateway revokes the grant or the refresh token expires, codemode calls fail with "codemode is not connected" until you click **Connect** again.
 
+### App library
+
+`src/worker/catalog.ts` lists 194 vendor-run remote MCP servers, each probed on 2026-11-18 for Streamable HTTP and its sign-in. **Apps** in Details opens the library, with search and categories.
+
+| `auth` | Count | Sign-in |
+| --- | --- | --- |
+| `oauth` | 132 | One click: dynamic client registration, PKCE, then the app's consent screen |
+| `cimd` | 10 | One click on an https deployment, through the client metadata document at `/api/oauth/client-metadata.json` |
+| `client` | 34 | Needs a registered OAuth app. Put `MCP_<ID>_CLIENT_ID` and `MCP_<ID>_CLIENT_SECRET` in Infisical, such as `MCP_GITHUB_CLIENT_ID`. Until then the library shows **Setup** |
+| `none` | 13 | Added with no sign-in |
+| `apikey` | 5 | The library asks for the key, stored as a bearer token |
+
+1. `POST /api/apps/:appId` adds an app. Sign-in apps are stored with `auth: "oauth"` and no token, then `POST /api/mcp/:id/connect` returns the app's authorization URL.
+2. Every app returns to `GET /api/mcp/oauth/callback`. `User.finishServerAuth()` finds the server by its OAuth `state`, exchanges the code, and keeps the tokens under `oauth:<server id>` in the `User` storage.
+3. A Bot's call gets its token from `User.serverToken()`, which refreshes it like codemode's.
+4. Google apps add `access_type=offline` and `prompt=consent` to get a refresh token, and catalog entries can carry their own scopes. Google's servers are in Developer Preview and need a Web OAuth client from a Cloud project in that program.
+5. `find_apps(query)` searches the library. `request_connection(app)` adds the app and switches it on for the Bot. When it needs a sign-in, the chat shows a **Connect** card. After the sign-in the Bot gets `[Connected]` in the chat that asked.
+
 **Limits:**
-- Added servers take bearer tokens only. Only the built-in `codemode` server signs in with OAuth.
 - Streamable HTTP only, no stdio servers.
 - MCP tools are reached through the two generic tools rather than as one tool each.
+- 20 apps advertise registration but reject unknown redirect addresses, so they are `client` or `cimd`.
+- A Connect card for codemode is not offered: use **Connect** in Details.
+
+## Approvals and the action log
+
+1. `mcp_call` asks first for any tool not marked `readOnlyHint`. `ask_approval(action, detail)` is for actions in the tab or a command: sending, posting, buying, booking, publishing or deleting.
+2. A request is stored under `approvals` in the `Bot` storage, the Bot's turn ends, and a push says **Needs approval**. The chat shows a card with **Allow once**, **Always allow** (MCP tools only) and **Deny**.
+3. `POST /api/bots/:id/approvals/:approvalId` is app only, so neither a Bot nor the API key can approve. The decision arrives in the chat that asked as `[Approval: allowed once]`, `[Approval: always allowed]` or `[Approval: denied]`.
+4. **Allow once** stores a one-time grant keyed by the server, the tool and a SHA-256 of the arguments. The Bot repeats the same call, which uses the grant. **Always allow** stores `server: tool` under `alwaysAllow`, listed in Details with a **×**.
+5. **Ask first** in Details turns approvals off for a Bot. Secret access always asks.
+6. The `flarebot_actions` table keeps the last 500 entries: asked, decided, gated calls that ran, and secrets used. Details → **Activity** shows the newest 30, and `GET /api/bots/:id/actions` returns 200.
+
+Requests from a group or a closed thread go to the Bot's main chat. The Mac tools keep their own dialog on the Mac.
+
+## Vault and Secure Form
+
+1. `request_secret(name, purpose, site)` returns at once when the Bot has the secret. Otherwise the chat shows a **Secure Form** card with a masked field.
+2. `POST /api/bots/:id/secret-requests/:requestId` (app only) seals the value with AES-GCM in the `User` storage under `vault`, with the name as associated data. The key is derived from `BETTER_AUTH_SECRET` with HKDF, so rotating that secret means entering the values again.
+3. Each secret lists the Bots that may use it. A Bot asking for another Bot's secret gets an approval card first. Details → **Secrets** ticks Bots on and off and deletes secrets.
+4. `type_secret(name)` types the value into the focused field in the Bot's tab, sent to the browser script on stdin. `run_linux` with `secrets` sets them as environment variables of the same name, and replaces each value in the output with `[secret NAME]`.
+5. The model, transcripts, traces and the API never see a value: tools return names only, and `GET /api/vault` lists names and Bot IDs.
+
+## Routines
+
+A routine is a scheduled prompt that runs in the Bot's main chat.
+
+1. The Bot creates one from chat with `create_routine`: a title, the full prompt, the schedule in plain words, an IANA timezone, and a 5-field cron or a single ISO time. Runs must be at least 15 minutes apart. `list_routines`, `update_routine` and `delete_routine` change them.
+2. Routines live under `routines` in the `Bot` storage, at most 30. `src/worker/routines.ts` works out the next run in the routine's timezone. A time skipped by a clock change is skipped, like cron.
+3. The Bot's alarm includes the next due routine. When it fires, the Bot posts `[Routine: title]` plus the prompt into its main chat as a follow-up. The chat shows it as a line with the title.
+4. Each run is recorded as running, then succeeded, failed or skipped, keeping the last 20. A run is skipped when the previous one is still running. A finished run sends the normal push.
+5. Details → **Routines** shows each one with **Run now**, pause, delete and the run history. **Webhook** copies a private link: `POST /api/hooks/routines/<bot>/<routine>/<token>` starts a run with the request body, up to 64 KB, added as data. It sits outside sign-in, compares the token in constant time, and allows one run a minute.
 
 ## 3D view
 

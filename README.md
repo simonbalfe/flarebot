@@ -30,9 +30,11 @@ Inspired by the UX of [Grok Bot](https://docs.x.ai/grok-bot/overview).
 | Import cookies from local Chrome | Built |
 | Email code sign-in for allowed emails | Built |
 | Installable mobile app (PWA) with an iOS Messages style phone layout | Built, tested at phone size locally |
-| Approvals, permissions, Secure Form, action log | Planned |
+| Approval cards with Allow once, Always allow and Deny for MCP tools that change things and for actions a Bot asks about, an Ask first switch per Bot, and an action log | Built, routes and cards tested locally, not yet run by a Bot |
+| Secure Form: a masked card for passwords and keys, kept encrypted in the vault and typed or passed to commands without the model seeing them | Built, not yet run by a Bot |
 | Skills and CLIs that each Bot creates and downloads for itself | Built, not yet run by a Bot |
-| Routines, dry run | Planned |
+| Routines: schedules a Bot sets up from chat, in any timezone, with run now, pause, the last 20 runs and a private webhook per routine | Built, schedule maths and routes tested locally, not yet run by a Bot |
+| Dry run | Planned |
 | Remote MCP servers, added once and switched on per Bot, with the codemode gateway built in and signed in over OAuth | Built. OAuth sign-in to codemode not yet tested end to end |
 | One shared pool of CLIs and Agent Skills in Artifacts, ticked per Bot | Built, add, tick and remove tested locally |
 | Bots write their own CLIs in any language and skills, and publish them to the pool | Built, a Bot has published a Go CLI; skill publishing not yet run by a Bot |
@@ -41,7 +43,7 @@ Inspired by the UX of [Grok Bot](https://docs.x.ai/grok-bot/overview).
 | Model turns on your own Mac's Claude Code login through the Mac daemon, falling back to the cloud container when the Mac is offline | Built, not yet run live |
 | Desktop app (Tauri) that starts the Mac daemon and keeps it running when the window is closed | Built, compiles, not yet run |
 | Android and iOS apps (Capacitor) around the same deployed UI, without the Mac daemon | Android debug APK builds; iOS project generated, needs Xcode to build |
-| Connected apps, MCP OAuth sign-in, Vault | Planned |
+| App library of 194 checked remote MCP servers, with one-click sign-in for 132 and a Connect card when a Bot needs an app | Built. Sign-in not yet tested end to end; 34 apps need a registered OAuth app in Infisical first |
 | Push notifications when a Bot finishes, from the bell in the chat list | Web Push built, encryption and signing checked locally |
 | Native push on the phone apps through APNs and FCM | Built, not yet run: needs the APNs key and a Firebase project in Infisical |
 | Optional Langfuse traces for every Bot run, with each model turn and tool call nested, on when the `LANGFUSE_*` secrets are in Infisical | Built, checked against the self-hosted Langfuse |

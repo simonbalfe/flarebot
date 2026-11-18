@@ -3,9 +3,15 @@ import type { CliSummary, OwnSkill, PoolKind, SkillSummary } from "../worker/poo
 import type { ComputerStatus } from "../worker/computer";
 import type { MacStatus } from "../worker/mac";
 import type { GroupView } from "../worker/group";
+import type { RoutineSummary } from "../worker/routines";
+import type { ActionEntry, ApprovalSummary, ConnectionRequestSummary, SecretRequestSummary } from "../worker/approvals";
+import type { CatalogEntry } from "../worker/catalog";
+import type { SecretSummary } from "../worker/vault";
 import type { McpServerSummary } from "../worker/mcp";
 import type { BotSummary, GroupSummary } from "../worker/user";
 
+export type { ActionEntry, ApprovalSummary, ConnectionRequestSummary, RoutineSummary, SecretRequestSummary, SecretSummary };
+export type AppEntry = CatalogEntry & { ready: boolean; serverId: string | null; connected: boolean };
 export type { BotSummary, BotView, CliSummary, ComputerStatus, GroupSummary, GroupView, MacStatus, McpServerSummary, OwnSkill, PoolKind, SkillSummary, ThreadSummary };
 export type { TranscriptItem } from "../worker/view";
 export type PickerOption = { id: string; label: string };
@@ -67,6 +73,22 @@ export const api = {
   removePoolItem:(kind: PoolKind, name: string) => call<void>(`/${kind}/${encodeURIComponent(name)}`, { method: "DELETE" }),
   setBotPool: (id: string, kind: PoolKind, names: string[]) => call<{ items: CliSummary[] }>(`${botPath(id)}/${kind}`, { method: "PUT", body: JSON.stringify({ names }) }),
   setBotMcp: (id: string, serverIds: string[]) => call<{ servers: McpServerSummary[] }>(`${botPath(id)}/mcp`, { method: "PUT", body: JSON.stringify({ serverIds }) }),
+  runRoutine: (id: string, routineId: string) => call<{ routine: RoutineSummary }>(`${botPath(id)}/routines/${encodeURIComponent(routineId)}/run`, { method: "POST" }),
+  updateRoutine: (id: string, routineId: string, patch: { paused: boolean }) => call<{ routine: RoutineSummary }>(`${botPath(id)}/routines/${encodeURIComponent(routineId)}`, { method: "PATCH", body: JSON.stringify(patch) }),
+  deleteRoutine: (id: string, routineId: string) => call<void>(`${botPath(id)}/routines/${encodeURIComponent(routineId)}`, { method: "DELETE" }),
+  decideApproval: (id: string, approvalId: string, decision: "once" | "always" | "deny") => call<void>(`${botPath(id)}/approvals/${encodeURIComponent(approvalId)}`, { method: "POST", body: JSON.stringify({ decision }) }),
+  submitSecret: (id: string, requestId: string, value: string) => call<void>(`${botPath(id)}/secret-requests/${encodeURIComponent(requestId)}`, { method: "POST", body: JSON.stringify({ value }) }),
+  dismissSecret: (id: string, requestId: string) => call<void>(`${botPath(id)}/secret-requests/${encodeURIComponent(requestId)}`, { method: "DELETE" }),
+  setAskFirst: (id: string, enabled: boolean) => call<void>(`${botPath(id)}/ask-first`, { method: "PUT", body: JSON.stringify({ enabled }) }),
+  forgetRule: (id: string, rule: string) => call<void>(`${botPath(id)}/always-allow`, { method: "DELETE", body: JSON.stringify({ rule }) }),
+  secrets: () => call<{ secrets: SecretSummary[] }>("/vault"),
+  setSecretAccess: (name: string, id: string, allowed: boolean) => call<void>(`/vault/${encodeURIComponent(name)}/bots/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ allowed }) }),
+  deleteSecret: (name: string) => call<void>(`/vault/${encodeURIComponent(name)}`, { method: "DELETE" }),
+  apps: () => call<{ apps: AppEntry[] }>("/apps"),
+  addApp: (appId: string, token: string) => call<{ server: McpServerSummary }>(`/apps/${encodeURIComponent(appId)}`, { method: "POST", body: JSON.stringify({ token }) }),
+  connectServer: (serverId: string, request?: { botId: string; requestId: string }) => call<{ url: string }>(`/mcp/${encodeURIComponent(serverId)}/connect`, { method: "POST", body: JSON.stringify(request ?? {}) }),
+  disconnectServer: (serverId: string) => call<void>(`/mcp/${encodeURIComponent(serverId)}/connection`, { method: "DELETE" }),
+  dismissConnection: (id: string, requestId: string) => call<void>(`${botPath(id)}/connection-requests/${encodeURIComponent(requestId)}`, { method: "DELETE" }),
   startThread: (id: string, project: string | null) => call<ThreadSummary>(`${botPath(id)}/threads`, { method: "POST", body: JSON.stringify({ project }) }),
   projects: () => call<{ projects: string[] }>("/projects"),
   updateBot: (id: string, input: { name: string; role: string }) => call<void>(botPath(id), { method: "PATCH", body: JSON.stringify(input) }),

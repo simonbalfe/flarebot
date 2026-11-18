@@ -1,7 +1,7 @@
 import { Button, createKumoToastManager, Dialog, DropdownMenu, Input, Select, Sidebar, Toasty } from "@cloudflare/kumo";
-import { BellIcon, BellSlashIcon, CaretLeftIcon, CaretRightIcon, CheckIcon, CopyIcon, LockSimpleIcon, MagnifyingGlassIcon, MonitorIcon, PlusIcon, SignOutIcon, UploadSimpleIcon, UsersThreeIcon, XIcon } from "@phosphor-icons/react";
+import { SquaresFourIcon, BellIcon, BellSlashIcon, CaretLeftIcon, CaretRightIcon, CheckIcon, CopyIcon, LockSimpleIcon, MagnifyingGlassIcon, MonitorIcon, PlusIcon, SignOutIcon, UploadSimpleIcon, UsersThreeIcon, XIcon } from "@phosphor-icons/react";
 import { lazy, type ReactNode, Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { api, type BotSummary, type BotView, type CliSummary, type ComputerStatus, type GroupSummary, isSignedIn, type MacStatus, type McpServerSummary, type OwnSkill, type PickerOption, type PoolKind, type SkillSummary, type ThreadSummary } from "./api";
+import { api, type AppEntry, type SecretSummary, type BotSummary, type BotView, type CliSummary, type ComputerStatus, type GroupSummary, isSignedIn, type MacStatus, type McpServerSummary, type OwnSkill, type PickerOption, type PoolKind, type SkillSummary, type ThreadSummary } from "./api";
 import { authClient } from "./auth";
 import { Avatar, botMentions } from "./Avatar";
 import { Composer } from "./Composer";
@@ -12,6 +12,10 @@ import { formatListTime } from "./format";
 import { GroupAvatars, GroupPane } from "./Group";
 import { disablePush, enablePush, onNotificationOpen, pushSupported, restorePush } from "./push";
 import "./theme";
+import { ActivitySection, SecretsSection, TrustSection } from "./Approvals";
+import { AppLibrary } from "./Apps";
+import { categoryLabels } from "../worker/catalog";
+import { RoutinesSection } from "./Routines";
 import { SignIn } from "./SignIn";
 import { Transcript } from "./Transcript";
 
@@ -197,7 +201,7 @@ function BotList(props: ChatListProps) {
   );
 }
 
-function McpSection({ servers, enabled, onToggle, onAdd, onRemove, onConnect }: { servers: McpServerSummary[]; enabled: string[]; onToggle: (id: string) => void; onAdd: (input: { name: string; url: string; token: string }) => Promise<boolean>; onRemove: (id: string) => void; onConnect: () => void }) {
+function McpSection({ servers, enabled, onToggle, onAdd, onRemove, onConnect, onLibrary }: { servers: McpServerSummary[]; enabled: string[]; onToggle: (id: string) => void; onAdd: (input: { name: string; url: string; token: string }) => Promise<boolean>; onRemove: (id: string) => void; onConnect: (server: McpServerSummary) => void; onLibrary: () => void }) {
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState({ name: "", url: "", token: "" });
@@ -212,8 +216,11 @@ function McpSection({ servers, enabled, onToggle, onAdd, onRemove, onConnect }: 
   return (
     <div className="flex flex-col">
       <div className="mb-1 flex items-center justify-between">
-        <span className="text-fb-preview">MCP servers</span>
-        <button type="button" aria-label="Add MCP server" className={iconButton} onClick={() => setAdding(!adding)}><PlusIcon size={12} /></button>
+        <span className="text-fb-preview">Apps</span>
+        <span className="flex">
+          <button type="button" aria-label="App library" className={iconButton} onClick={onLibrary}><SquaresFourIcon size={12} /></button>
+          <button type="button" aria-label="Add MCP server" className={iconButton} onClick={() => setAdding(!adding)}><PlusIcon size={12} /></button>
+        </span>
       </div>
       {servers.map((server) => (
         <div key={server.id} className="flex items-center justify-between gap-2 border-t border-fb-line py-1.5">
@@ -223,7 +230,8 @@ function McpSection({ servers, enabled, onToggle, onAdd, onRemove, onConnect }: 
             </span>
             <span className="min-w-0 truncate">{server.name}</span>
           </button>
-          {server.builtIn ? (server.hasToken ? null : <Button type="button" size="sm" className={submitButton} onClick={onConnect}>Connect</Button>) : <button type="button" aria-label={`Remove ${server.name}`} className={iconButton} onClick={() => onRemove(server.id)}><XIcon size={12} /></button>}
+          {server.auth === "oauth" && !server.hasToken ? <Button type="button" size="sm" className={submitButton} onClick={() => onConnect(server)}>Connect</Button> : null}
+          {server.builtIn ? null : <button type="button" aria-label={`Remove ${server.name}`} className={iconButton} onClick={() => onRemove(server.id)}><XIcon size={12} /></button>}
         </div>
       ))}
       {adding ? (
@@ -394,7 +402,7 @@ function SkillForm({ onAdd, onDone }: { onAdd: (file: File) => Promise<boolean>;
   );
 }
 
-function DetailsPanel({ view, index, models, efforts, mcpServers, onModel, onEffort, onClear, onRole, onForget, onToggleMcp, onAddMcp, onRemoveMcp, onConnectCodemode, children }: { view: BotView; index: number; models: PickerOption[]; efforts: PickerOption[]; mcpServers: McpServerSummary[]; onModel: (model: string) => void; onEffort: (effort: string) => void; onClear: () => void; onRole: (role: string) => void; onForget: (index: number) => void; onToggleMcp: (id: string) => void; onAddMcp: (input: { name: string; url: string; token: string }) => Promise<boolean>; onRemoveMcp: (id: string) => void; onConnectCodemode: () => void; children: ReactNode }) {
+function DetailsPanel({ view, index, models, efforts, mcpServers, onModel, onEffort, onClear, onRole, onForget, onToggleMcp, onAddMcp, onRemoveMcp, onConnectServer, onLibrary, children }: { view: BotView; index: number; models: PickerOption[]; efforts: PickerOption[]; mcpServers: McpServerSummary[]; onModel: (model: string) => void; onEffort: (effort: string) => void; onClear: () => void; onRole: (role: string) => void; onForget: (index: number) => void; onToggleMcp: (id: string) => void; onAddMcp: (input: { name: string; url: string; token: string }) => Promise<boolean>; onRemoveMcp: (id: string) => void; onConnectServer: (server: McpServerSummary) => void; onLibrary: () => void; children: ReactNode }) {
   const modelItems = models.map((model) => ({ value: model.id, label: model.label }));
   const effortItems = efforts.map((effort) => ({ value: effort.id, label: effort.label }));
   const [role, setRole] = useState(view.profile.role);
@@ -427,7 +435,7 @@ function DetailsPanel({ view, index, models, efforts, mcpServers, onModel, onEff
         <span className="text-fb-preview">Artifacts repo</span>
         <span className="font-mono text-xs [overflow-wrap:anywhere]">{view.workspace.repo}</span>
       </div>
-      <McpSection servers={mcpServers} enabled={view.mcpServers.map((server) => server.id)} onToggle={onToggleMcp} onAdd={onAddMcp} onRemove={onRemoveMcp} onConnect={onConnectCodemode} />
+      <McpSection servers={mcpServers} enabled={view.mcpServers.map((server) => server.id)} onToggle={onToggleMcp} onAdd={onAddMcp} onRemove={onRemoveMcp} onConnect={onConnectServer} onLibrary={onLibrary} />
       {children}
       <div className="flex flex-col">
         <span className="mb-1 text-fb-preview">Memory</span>
@@ -600,6 +608,8 @@ function Workspace() {
   const [skills, setSkills] = useState<SkillSummary[]>([]);
   const [ownSkills, setOwnSkills] = useState<OwnSkill[]>([]);
   const [macStatus, setMacStatus] = useState<MacStatus | null>(null);
+  const [secrets, setSecrets] = useState<SecretSummary[]>([]);
+  const [library, setLibrary] = useState<AppEntry[] | null>(null);
   const [projects, setProjects] = useState<string[]>([]);
   const [pending, setPending] = useState<PendingMessage[]>([]);
   const requestedView = useRef(0);
@@ -630,6 +640,11 @@ function Workspace() {
   mobileRef.current = mobile;
   useEffect(() => {
     const openTarget = (url: URL) => {
+      const connected = url.searchParams.get("connected");
+      const connectError = url.searchParams.get("connectError");
+      if (connected !== null) toasts.add({ title: `${connected} connected` });
+      if (connectError !== null) toasts.add({ title: "Sign-in failed", description: connectError, variant: "error" });
+      if (connected !== null || connectError !== null) window.history.replaceState(null, "", "/");
       const bot = url.searchParams.get("bot");
       const group = url.searchParams.get("group");
       if (bot === null && group === null) return;
@@ -766,11 +781,17 @@ function Workspace() {
     if (result !== undefined) setOwnSkills(result.skills);
   }, [guard]);
 
+  const loadSecrets = useCallback(async () => {
+    const result = await guard(api.secrets);
+    if (result !== undefined) setSecrets(result.secrets);
+  }, [guard]);
+
   useEffect(() => {
     if (panel !== "details") return;
     void loadMcp();
     void loadPool();
-  }, [panel, loadMcp, loadPool]);
+    void loadSecrets();
+  }, [panel, loadMcp, loadPool, loadSecrets]);
 
   useEffect(() => {
     setOwnSkills([]);
@@ -815,6 +836,27 @@ function Workspace() {
     toasts.add({ title: `${added.server.name} connected`, description: `${added.tools} tools` });
     await loadMcp();
     return true;
+  };
+
+  const openLibrary = async () => {
+    const result = await guard(api.apps);
+    if (result !== undefined) setLibrary(result.apps);
+  };
+
+  const addApp = async (entry: AppEntry, token: string) => {
+    const serverId = entry.serverId ?? (await guard(() => api.addApp(entry.id, token)))?.server.id;
+    if (serverId === undefined) return;
+    if (entry.auth === "none" || entry.auth === "apikey") {
+      toasts.add({ title: `${entry.name} added` });
+      await Promise.all([loadMcp(), openLibrary()]);
+      return;
+    }
+    const started = await guard(() => api.connectServer(serverId));
+    if (started === undefined) {
+      await Promise.all([loadMcp(), openLibrary()]);
+      return;
+    }
+    window.location.href = started.url;
   };
 
   const shown = currentId !== null && viewKey === viewKeyOf(currentId, threadId) ? view : null;
@@ -969,7 +1011,24 @@ function Workspace() {
         {summary === undefined ? null : (
           <ThreadBar threads={shown?.threads ?? view?.threads ?? []} projects={projects} current={threadId} onOpen={setThreadId} onNew={(project) => void newThread(project)} onRename={setRenamingThread} onClose={(id) => void closeThread(id)} />
         )}
-        {shown === null ? <div className="flex-1" /> : <Transcript view={shown} bots={bots} pending={shownPending} onTakeOver={openComputer} />}
+        {shown === null ? <div className="flex-1" /> : <Transcript
+          view={shown}
+          bots={bots}
+          pending={shownPending}
+          onTakeOver={openComputer}
+          cards={{
+            onDecide: (approvalId, decision) => currentId !== null && void guard(() => api.decideApproval(currentId, approvalId, decision)).then(() => loadView(currentId, threadId)),
+            onSubmitSecret: async (requestId, value) => {
+              if (currentId === null) return false;
+              const saved = await guard(() => api.submitSecret(currentId, requestId, value).then(() => true));
+              await Promise.all([loadView(currentId, threadId), loadSecrets()]);
+              return saved === true;
+            },
+            onDismissSecret: (requestId) => currentId !== null && void guard(() => api.dismissSecret(currentId, requestId)).then(() => loadView(currentId, threadId)),
+            onConnect: (serverId, requestId) => currentId !== null && void guard(() => api.connectServer(serverId, { botId: currentId, requestId })).then((result) => { if (result !== undefined) window.location.href = result.url; }),
+            onDismissConnection: (requestId) => currentId !== null && void guard(() => api.dismissConnection(currentId, requestId)).then(() => loadView(currentId, threadId)),
+          }}
+        />}
         {summary === undefined ? null : (
           <Composer
             key={`${summary.id}:${threadId ?? "main"}`}
@@ -1025,9 +1084,32 @@ function Workspace() {
                   mcpServers={mcpServers}
                   onToggleMcp={(serverId) => void toggleMcp(shown, serverId)}
                   onAddMcp={addMcp}
-                  onConnectCodemode={() => void guard(api.connectCodemode).then((result) => { if (result !== undefined) window.location.href = result.url; })}
+                  onConnectServer={(server) => void guard(server.builtIn ? api.connectCodemode : () => api.connectServer(server.id)).then((result) => { if (result !== undefined) window.location.href = result.url; })}
+                  onLibrary={() => void openLibrary()}
                   onRemoveMcp={(serverId) => void guard(() => api.removeMcpServer(serverId)).then(() => Promise.all([loadMcp(), currentId !== null ? loadView(currentId, threadId) : undefined]))}
                 >
+                  <RoutinesSection
+                    routines={shown.routines}
+                    onRun={(routineId) => currentId !== null && void guard(() => api.runRoutine(currentId, routineId)).then((result) => {
+                      if (result !== undefined) toasts.add({ title: `${result.routine.title} started` });
+                      return loadView(currentId, threadId);
+                    })}
+                    onPause={(routine) => currentId !== null && void guard(() => api.updateRoutine(currentId, routine.id, { paused: !routine.paused })).then(() => loadView(currentId, threadId))}
+                    onDelete={(routine) => currentId !== null && setConfirmation({ title: `Delete ${routine.title}?`, action: "Delete", run: () => void guard(() => api.deleteRoutine(currentId, routine.id)).then(() => loadView(currentId, threadId)) })}
+                    onCopyHook={(routine) => void navigator.clipboard.writeText(`${window.location.origin}${routine.hookPath}`).then(() => toasts.add({ title: "Webhook copied" }))}
+                  />
+                  <TrustSection
+                    askFirst={shown.askFirst}
+                    alwaysAllow={shown.alwaysAllow}
+                    onAskFirst={() => currentId !== null && void guard(() => api.setAskFirst(currentId, !shown.askFirst)).then(() => loadView(currentId, threadId))}
+                    onForgetRule={(rule) => currentId !== null && void guard(() => api.forgetRule(currentId, rule)).then(() => loadView(currentId, threadId))}
+                  />
+                  <SecretsSection
+                    secrets={secrets}
+                    botId={shown.profile.id}
+                    onToggle={(secret) => currentId !== null && void guard(() => api.setSecretAccess(secret.name, currentId, !secret.botIds.includes(currentId))).then(() => Promise.all([loadSecrets(), loadView(currentId, threadId)]))}
+                    onDelete={(secret) => setConfirmation({ title: `Delete ${secret.name} for every Bot?`, action: "Delete", run: () => void guard(() => api.deleteSecret(secret.name)).then(() => loadSecrets()) })}
+                  />
                   <PoolSection
                     title="CLIs"
                     items={clis}
@@ -1058,6 +1140,7 @@ function Workspace() {
                     onApprove={(userCode) => void guard(() => api.approveMacLink(userCode)).then(() => loadMac())}
                     onUnpair={() => setConfirmation({ title: "Unpair this Mac?", action: "Unpair", run: () => void guard(api.unpairMac).then(() => loadMac()) })}
                   />
+                  <ActivitySection actions={shown.actions} />
                 </DetailsPanel>
               ) : null}
             </div>
@@ -1066,6 +1149,7 @@ function Workspace() {
 
   const overlays = (
     <>
+      {library === null ? null : <AppLibrary apps={library} categories={categoryLabels} onAdd={addApp} onClose={() => setLibrary(null)} />}
       {overlay === "take" && summary !== undefined ? (
         <TakeOver
           name={summary.name}

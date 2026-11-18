@@ -13,7 +13,11 @@ export interface McpServerConfig {
   description: string;
   headers: Record<string, string>;
   authProvider?: AuthProvider;
+  auth?: McpAuth;
+  catalogId?: string;
 }
+
+export type McpAuth = "token" | "oauth";
 
 export interface McpServerSummary {
   id: string;
@@ -22,12 +26,15 @@ export interface McpServerSummary {
   description: string;
   hasToken: boolean;
   builtIn: boolean;
+  auth: McpAuth;
+  catalogId: string | null;
 }
 
 export interface McpTool {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
+  readOnly: boolean;
 }
 
 export interface McpCallResult {
@@ -36,7 +43,7 @@ export interface McpCallResult {
 }
 
 export function serverSummary(server: McpServerConfig): McpServerSummary {
-  return { id: server.id, name: server.name, url: server.url, description: server.description, hasToken: Object.keys(server.headers).length > 0, builtIn: isBuiltInServer(server.id) };
+  return { id: server.id, name: server.name, url: server.url, description: server.description, hasToken: Object.keys(server.headers).length > 0, builtIn: isBuiltInServer(server.id), auth: isBuiltInServer(server.id) ? "oauth" : (server.auth ?? "token"), catalogId: server.catalogId ?? null };
 }
 
 export function isBuiltInServer(id: string): boolean {
@@ -65,7 +72,7 @@ async function withClient<T>(server: McpServerConfig, work: (client: McpClient) 
 
 export function listTools(server: McpServerConfig): Promise<McpTool[]> {
   return withClient(server, async (client) =>
-    (await client.listTools()).map((tool) => ({ name: tool.name, description: tool.description ?? tool.title ?? "", inputSchema: tool.inputSchema })),
+    (await client.listTools()).map((tool) => ({ name: tool.name, description: tool.description ?? tool.title ?? "", inputSchema: tool.inputSchema, readOnly: tool.annotations?.readOnlyHint === true })),
   );
 }
 

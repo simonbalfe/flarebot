@@ -1,6 +1,7 @@
 import { authorizeMcp, type McpOAuthState } from "@earendil-works/pi-mcp/oauth";
 import { DurableObject } from "cloudflare:workers";
-import { codemodeOAuth } from "./codemode-auth";
+import { catalogEntry, clientEnvPrefix } from "./catalog";
+import { clientMetadataPath, codemodeOAuth, mcpCallbackPath, mcpOAuth, type OAuthClient } from "./codemode-auth";
 import { claudeModelId, defaultEffort } from "./env";
 import { codemodeServer, isBuiltInServer, listTools, type McpServerConfig, type McpServerSummary, serverSummary } from "./mcp";
 import { addCli, type CliSummary, ensurePool, inspectSkill, type PoolKind, publishCli, publishSkill, removeItem, unpackUpload } from "./pool";
@@ -8,10 +9,14 @@ import { type PushDevice, sendDevicePush } from "./native-push";
 import { createVapidKeys, type PushMessage, type PushSubscriptionInput, sendPush, type VapidKeys } from "./push";
 import { projectExists } from "./repos";
 import type { BotProfile } from "./tools";
+import { type SealedSecret, seal, type SecretSummary, secretSummary, unseal } from "./vault";
 
 export type PoolResult = { ok: true; name: string } | { ok: false; error: string };
 
 type StoredItem = Omit<CliSummary, "publishedBy"> & { publishedBy?: string | null };
+
+export type ConnectRequest = { botId: string; requestId: string };
+export type FinishedConnection = { serverId: string; name: string; request: ConnectRequest | null };
 
 export type AddMcpResult = { ok: true; server: McpServerSummary; tools: number } | { ok: false; error: string };
 
@@ -80,6 +85,7 @@ export class User extends DurableObject<Env> {
 
   async deleteBot(id: string): Promise<void> {
     this.ctx.storage.kv.put("bots", this.#bots().filter((bot) => bot.id !== id));
+    this.ctx.storage.kv.put("vault", this.#secrets().map((secret) => ({ ...secret, botIds: secret.botIds.filter((botId) => botId !== id) })));
     for (const group of this.groups().filter((candidate) => candidate.memberIds.includes(id))) {
       const memberIds = group.memberIds.filter((member) => member !== id);
       if (memberIds.length === 0) await this.deleteGroup(group.id);
@@ -213,7 +219,90 @@ export class User extends DurableObject<Env> {
 
   mcpServers(): McpServerSummary[] {
     const connected = this.#codemodeState()?.tokens !== undefined;
-    return this.#mcpServers().map((server) => (isBuiltInServer(server.id) ? { ...serverSummary(server), hasToken: connected } : serverSummary(server)));
+    return this.#mcpServers().map((server) => {
+      if (isBuiltInServer(server.id)) return { ...serverSummary(server), hasToken: connected };
+      if (server.auth === "oauth") return { ...serverSummary(server), hasToken: this.#oauthState(server.id)?.tokens !== undefined };
+      return serverSummary(server);
+    });
+  }
+
+  async addOAuthServer(input: { name: string; url: string; description: string; catalogId: string }): Promise<AddMcpResult> {
+    const existing = this.#storedMcpServers().find((server) => server.catalogId === input.catalogId || server.url === input.url);
+    if (existing !== undefined) return { ok: true, server: this.mcpServers().find((server) => server.id === existing.id) ?? serverSummary(existing), tools: 0 };
+    if (this.#mcpServers().some((server) => server.name.toLowerCase() === input.name.toLowerCase())) return { ok: false, error: `An MCP server named ${input.name} already exists` };
+    const server: McpServerConfig = { id: crypto.randomUUID(), name: input.name, url: input.url, description: input.description, headers: {}, auth: "oauth", catalogId: input.catalogId };
+    this.ctx.storage.kv.put("mcpServers", [...this.#storedMcpServers(), server]);
+    return { ok: true, server: serverSummary(server), tools: 0 };
+  }
+
+  async connectServer(id: string, origin: string, request: ConnectRequest | null): Promise<string> {
+    const server = this.#storedMcpServers().find((candidate) => candidate.id === id && candidate.auth === "oauth");
+    if (server === undefined) throw new Error("No app with that id");
+    this.ctx.storage.kv.put("oauthOrigin", origin);
+    this.ctx.storage.kv.delete(`oauth:${id}`);
+    this.ctx.storage.kv.put("oauthRequests", { ...this.#oauthRequests(), [id]: request });
+    let target: URL | undefined;
+    const result = await authorizeMcp(this.#serverProvider(server, (url) => { target = url; }), this.#flowOptions(server));
+    if (result === "AUTHORIZED") return `${origin}/`;
+    if (target === undefined) throw new Error(`${server.name} did not ask for a sign-in`);
+    for (const [key, value] of Object.entries(catalogEntry(server.catalogId)?.authParams ?? {})) target.searchParams.set(key, value);
+    return target.toString();
+  }
+
+  async finishServerAuth(input: { code: string; state: string; iss?: string }): Promise<FinishedConnection> {
+    const server = this.#storedMcpServers().find((candidate) => candidate.auth === "oauth" && this.#oauthState(candidate.id)?.oauthState === input.state);
+    if (server === undefined) throw new Error("Sign-in state does not match");
+    await authorizeMcp(this.#serverProvider(server, () => undefined), { ...this.#flowOptions(server), authorizationCode: input.code, ...(input.iss === undefined ? {} : { iss: input.iss }) });
+    const request = this.#oauthRequests()[server.id] ?? null;
+    const { [server.id]: _done, ...rest } = this.#oauthRequests();
+    this.ctx.storage.kv.put("oauthRequests", rest);
+    return { serverId: server.id, name: server.name, request };
+  }
+
+  serverToken(id: string, refresh: boolean): Promise<string | null> {
+    return this.ctx.blockConcurrencyWhile(async () => {
+      const server = this.#storedMcpServers().find((candidate) => candidate.id === id && candidate.auth === "oauth");
+      const state = this.#oauthState(id);
+      if (server === undefined || state?.tokens === undefined) return null;
+      const fresh = state.tokensExpireAt === undefined || state.tokensExpireAt - tokenRefreshMarginMs > Date.now();
+      if (fresh && !refresh) return state.tokens.access_token;
+      const provider = this.#serverProvider(server, () => undefined);
+      const result = await authorizeMcp(provider, this.#flowOptions(server)).catch(() => "REDIRECT" as const);
+      return result === "AUTHORIZED" ? ((await provider.tokens())?.access_token ?? null) : null;
+    });
+  }
+
+  disconnectServer(id: string): void {
+    this.ctx.storage.kv.delete(`oauth:${id}`);
+  }
+
+  #oauthState(id: string): McpOAuthState | undefined {
+    return this.ctx.storage.kv.get<McpOAuthState>(`oauth:${id}`);
+  }
+
+  #oauthRequests(): Record<string, ConnectRequest | null> {
+    return this.ctx.storage.kv.get<Record<string, ConnectRequest | null>>("oauthRequests") ?? {};
+  }
+
+  #flowOptions(server: McpServerConfig): { serverUrl: string; scope?: string } {
+    const scope = catalogEntry(server.catalogId)?.scope;
+    return scope === undefined ? { serverUrl: server.url } : { serverUrl: server.url, scope };
+  }
+
+  #oauthClient(catalogId: string | undefined): OAuthClient | undefined {
+    const entry = catalogEntry(catalogId);
+    if (entry?.auth !== "client") return undefined;
+    const prefix = clientEnvPrefix(entry.id);
+    const clientId: unknown = Reflect.get(this.env, `${prefix}_CLIENT_ID`);
+    const clientSecret: unknown = Reflect.get(this.env, `${prefix}_CLIENT_SECRET`);
+    if (typeof clientId !== "string" || clientId === "") throw new Error(`${entry.name} needs ${prefix}_CLIENT_ID and ${prefix}_CLIENT_SECRET in Infisical`);
+    return typeof clientSecret === "string" && clientSecret !== "" ? { clientId, clientSecret } : { clientId };
+  }
+
+  #serverProvider(server: McpServerConfig, onRedirect: (url: URL) => void) {
+    const origin = this.ctx.storage.kv.get<string>("oauthOrigin") ?? this.env.FLAREBOT_APP_URL;
+    const cimd = catalogEntry(server.catalogId)?.auth === "cimd" && origin.startsWith("https://") ? { url: `${origin}${clientMetadataPath}`, redirectUrl: `${origin}${mcpCallbackPath}` } : undefined;
+    return mcpOAuth({ serverUrl: server.url, redirectUrl: `${origin}${mcpCallbackPath}`, store: { load: () => this.#oauthState(server.id), save: (state) => this.ctx.storage.kv.put(`oauth:${server.id}`, state) }, onRedirect, client: this.#oauthClient(server.catalogId), cimd });
   }
 
   mcpServer(id: string): McpServerConfig | null {
@@ -260,7 +349,7 @@ export class User extends DurableObject<Env> {
     return codemodeOAuth(this.env, origin, { load: () => this.#codemodeState(), save: (state) => this.ctx.storage.kv.put("codemodeOAuth", state) }, onRedirect);
   }
 
-  async addMcpServer(input: { name: string; url: string; description: string; token: string }): Promise<AddMcpResult> {
+  async addMcpServer(input: { name: string; url: string; description: string; token: string; catalogId?: string }): Promise<AddMcpResult> {
     if (this.#mcpServers().some((server) => server.name.toLowerCase() === input.name.toLowerCase())) return { ok: false, error: `An MCP server named ${input.name} already exists` };
     const server: McpServerConfig = {
       id: crypto.randomUUID(),
@@ -268,6 +357,7 @@ export class User extends DurableObject<Env> {
       url: input.url,
       description: input.description,
       headers: input.token === "" ? {} : { authorization: `Bearer ${input.token}` },
+      ...(input.catalogId === undefined ? {} : { catalogId: input.catalogId }),
     };
     try {
       const tools = await listTools(server);
@@ -282,7 +372,47 @@ export class User extends DurableObject<Env> {
   async removeMcpServer(id: string): Promise<void> {
     if (isBuiltInServer(id)) return;
     this.ctx.storage.kv.put("mcpServers", this.#storedMcpServers().filter((server) => server.id !== id));
+    this.ctx.storage.kv.delete(`oauth:${id}`);
     await Promise.allSettled(this.#bots().map((bot) => this.env.BOT.getByName(bot.id).disableMcpServer(id)));
+  }
+
+  secrets(): SecretSummary[] {
+    return this.#secrets().map(secretSummary);
+  }
+
+  secretNames(botId: string): string[] {
+    return this.#secrets().filter((secret) => secret.botIds.includes(botId)).map((secret) => secret.name);
+  }
+
+  hasSecret(name: string): boolean {
+    return this.#secrets().some((secret) => secret.name === name);
+  }
+
+  async storeSecret(name: string, value: string, botId: string): Promise<void> {
+    const existing = this.#secrets().find((secret) => secret.name === name);
+    const sealed: SealedSecret = { name, botIds: [...new Set([...(existing?.botIds ?? []), botId])], createdAt: Date.now(), ...(await seal(this.env, name, value)) };
+    this.ctx.storage.kv.put("vault", [...this.#secrets().filter((secret) => secret.name !== name), sealed].sort((a, b) => a.name.localeCompare(b.name)));
+  }
+
+  setSecretAccess(name: string, botId: string, allowed: boolean): boolean {
+    const existing = this.#secrets().find((secret) => secret.name === name);
+    if (existing === undefined) return false;
+    const botIds = allowed ? [...new Set([...existing.botIds, botId])] : existing.botIds.filter((id) => id !== botId);
+    this.ctx.storage.kv.put("vault", this.#secrets().map((secret) => (secret.name === name ? { ...secret, botIds } : secret)));
+    return true;
+  }
+
+  deleteSecret(name: string): void {
+    this.ctx.storage.kv.put("vault", this.#secrets().filter((secret) => secret.name !== name));
+  }
+
+  async revealSecret(name: string, botId: string): Promise<string | null> {
+    const secret = this.#secrets().find((candidate) => candidate.name === name && candidate.botIds.includes(botId));
+    return secret === undefined ? null : unseal(this.env, secret);
+  }
+
+  #secrets(): SealedSecret[] {
+    return this.ctx.storage.kv.get<SealedSecret[]>("vault") ?? [];
   }
 
   async pushPublicKey(): Promise<string> {
