@@ -602,7 +602,7 @@ flarebot installs as a web app (PWA) on Android and iPhone.
 | Service worker | None. `public/sw.js` only deletes its caches and unregisters itself, so copies installed before the phone apps clean themselves up, and `src/web/main.tsx` unregisters any it finds. The app is always loaded fresh from the network |
 | Head tags | `index.html`: theme colours, Apple web-app tags, `interactive-widget=resizes-content` so Android resizes the layout for the keyboard |
 | Visible-viewport height | `src/web/mobile.ts` sets `--fb-viewport-height` from `visualViewport`, so the composer stays above the iPhone keyboard |
-| Updates | `src/web/main.tsx` checks for a new service worker whenever the app comes back to the foreground, and reloads once when a new one takes control. Bump `shellCache` in `public/sw.js` when the shell changes |
+| Updates | With no service worker, each load fetches the latest build, so a deploy reaches an installed app the next time it opens |
 
 Below 768px wide the layout follows iOS Messages:
 
