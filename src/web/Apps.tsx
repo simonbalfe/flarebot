@@ -1,3 +1,4 @@
+import { Confirmation, ConfirmationAction, ConfirmationActions, ConfirmationLabel, ConfirmationTitle } from "@/components/ai-elements/confirmation";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -5,7 +6,6 @@ import { CheckIcon, MagnifyingGlassIcon, PlugsConnectedIcon } from "@phosphor-ic
 import { useMemo, useState } from "react";
 import type { AppEntry, ConnectionRequestSummary } from "./api";
 
-const card = "fb-bubble my-1 flex flex-col gap-2 self-start bg-fb-control p-4 text-fb-text ring-1 ring-fb-action/50";
 const chip = "fb-caption h-6 shrink-0 cursor-pointer rounded-full px-2.5";
 
 export function AppIcon({ domain, name, size = 28 }: { domain: string; name: string; size?: number }) {
@@ -89,17 +89,14 @@ export function AppLibrary({ apps, categories, onAdd, onClose }: { apps: AppEntr
 export function ConnectCard({ request, onConnect, onDismiss }: { request: ConnectionRequestSummary; onConnect: () => void; onDismiss: () => void }) {
   const [busy, setBusy] = useState(false);
   return (
-    <div className={card}>
-      <span className="fb-caption flex items-center gap-1.5 font-semibold text-fb-control-text">
-        <PlugsConnectedIcon size={14} weight="fill" />
-        Connect app
-      </span>
-      <span className="text-[15px] font-semibold leading-5">{request.name}</span>
+    <Confirmation>
+      <ConfirmationLabel icon={<PlugsConnectedIcon size={14} weight="fill" />}>Connect app</ConfirmationLabel>
+      <ConfirmationTitle>{request.name}</ConfirmationTitle>
       {request.reason === "" ? null : <span>{request.reason}</span>}
-      <div className="mt-1 flex flex-wrap gap-2">
-        <Button size="sm" variant="action" disabled={busy} onClick={() => { setBusy(true); onConnect(); }}>Connect</Button>
-        <Button size="sm" variant="secondary" disabled={busy} onClick={onDismiss}>Dismiss</Button>
-      </div>
-    </div>
+      <ConfirmationActions>
+        <ConfirmationAction variant="action" disabled={busy} onClick={() => { setBusy(true); onConnect(); }}>Connect</ConfirmationAction>
+        <ConfirmationAction variant="secondary" disabled={busy} onClick={onDismiss}>Dismiss</ConfirmationAction>
+      </ConfirmationActions>
+    </Confirmation>
   );
 }

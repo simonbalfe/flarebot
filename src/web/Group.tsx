@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
+import { Conversation, ConversationContent, ConversationScrollButton } from "@/components/ai-elements/conversation";
 import { api, type BotSummary, type GroupSummary } from "./api";
 import { Avatar, type MentionOption } from "./Avatar";
 import { Composer } from "./Composer";
@@ -29,17 +30,11 @@ export function GroupPane({ group, bots }: { group: GroupSummary; bots: BotSumma
   const queries = useQueryClient();
   const view = useQuery(groupQuery(group.id)).data ?? null;
   const [pending, setPending] = useState<string | null>(null);
-  const bottom = useRef<HTMLDivElement>(null);
   const members = group.memberIds.flatMap((id) => bots.filter((bot) => bot.id === id));
   const typing = members.filter((bot) => view?.typingIds.includes(bot.id));
   const mentions: MentionOption[] = [...members.map((bot) => ({ name: bot.name, index: bots.indexOf(bot) })), { name: "everyone", index: null }];
-  const messageCount = view?.messages.length ?? 0;
 
   const load = () => queries.invalidateQueries({ queryKey: keys.group(group.id) });
-
-  useEffect(() => {
-    bottom.current?.scrollIntoView({ block: "end" });
-  }, [messageCount, pending, typing.length]);
 
   const send = async (text: string) => {
     setPending(text);
@@ -63,8 +58,8 @@ export function GroupPane({ group, bots }: { group: GroupSummary; bots: BotSumma
   let previousAt = 0;
   return (
     <>
-      <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-width:none]">
-        <div className="flex min-h-full w-full flex-col gap-1.5 px-3 py-4 md:px-5">
+      <Conversation key={group.id}>
+        <ConversationContent>
           {view?.messages.map((message) => {
             const showTime = message.at - previousAt > timeGapMs;
             previousAt = message.at;
@@ -88,9 +83,9 @@ export function GroupPane({ group, bots }: { group: GroupSummary; bots: BotSumma
           })}
           {pending === null ? null : <MyBubble text={pending} mentions={mentions} />}
           {typing.map((bot) => <Thinking key={bot.id} index={bots.indexOf(bot)} />)}
-          <div ref={bottom} />
-        </div>
-      </div>
+        </ConversationContent>
+        <ConversationScrollButton />
+      </Conversation>
       <Composer key={group.id} name={group.name} busy={typing.length > 0} autoFocus={!mobile} mentions={mentions} onSend={(text) => void send(text)} onStop={() => void stop()} />
     </>
   );

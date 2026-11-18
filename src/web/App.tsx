@@ -919,7 +919,8 @@ export function Workspace() {
         {summary === undefined ? null : (
           <ThreadBar threads={shown?.threads ?? view?.threads ?? []} projects={projects} current={threadId} onOpen={(id) => void go({ thread: id ?? undefined })} onNew={(project) => void newThread(project)} onRename={setRenamingThread} onClose={(id) => void closeThread(id)} />
         )}
-        {shown === null ? <div className="flex-1" /> : <Transcript
+        {shown === null || currentId === null ? <div className="flex-1" /> : <Transcript
+          key={viewKeyOf(currentId, threadId)}
           view={shown}
           bots={bots}
           pending={shownPending}

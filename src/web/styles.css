@@ -155,6 +155,26 @@ body {
   text-shadow: 0 0 3px rgba(255, 255, 255, 0.9), 0 0 6px rgba(255, 255, 255, 0.7);
 }
 
+@keyframes fb-shimmer {
+  from {
+    background-position: 100% center;
+  }
+  to {
+    background-position: 0% center;
+  }
+}
+
+@utility fb-shimmer {
+  display: inline-block;
+  color: transparent;
+  -webkit-background-clip: text;
+  background-clip: text;
+  background-repeat: no-repeat, padding-box;
+  background-size: 250% 100%, auto;
+  background-image: linear-gradient(90deg, #0000 calc(50% - var(--fb-shimmer-spread, 16px)), var(--color-fb-pane), #0000 calc(50% + var(--fb-shimmer-spread, 16px))), linear-gradient(var(--color-fb-preview), var(--color-fb-preview));
+  animation: fb-shimmer var(--fb-shimmer-duration, 2s) linear infinite;
+}
+
 @keyframes fb-pulse {
   50% {
     opacity: 1;

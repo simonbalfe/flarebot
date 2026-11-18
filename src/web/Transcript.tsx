@@ -1,9 +1,9 @@
-import { Button } from "@/components/ui/button";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { ArrowBendUpRightIcon, CaretRightIcon, ClockClockwiseIcon, HandPalmIcon, RobotIcon } from "@phosphor-icons/react";
-import { useEffect, useRef, useState } from "react";
-import Markdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { Confirmation, ConfirmationAction, ConfirmationActions, ConfirmationLabel, ConfirmationTitle } from "@/components/ai-elements/confirmation";
+import { Conversation, ConversationContent, ConversationEmptyState, ConversationScrollButton } from "@/components/ai-elements/conversation";
+import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message";
+import { Shimmer } from "@/components/ai-elements/shimmer";
+import { Tool, ToolContent, ToolHeader, ToolInput } from "@/components/ai-elements/tool";
+import { ArrowBendUpRightIcon, ClockClockwiseIcon, HandPalmIcon, RobotIcon } from "@phosphor-icons/react";
 import type { BotSummary, BotView, TranscriptItem } from "./api";
 import { ApprovalCard, type Decision, SecretCard } from "./Approvals";
 import { ConnectCard } from "./Apps";
@@ -11,7 +11,6 @@ import { Avatar, botMentions, colorOf, MentionChip, type MentionOption } from ".
 import { formatClock } from "./format";
 
 const timeGapMs = 5 * 60 * 1000;
-const remarkPlugins = [remarkGfm];
 const systemLine = "fb-caption flex items-center justify-center gap-1.5 py-1 text-fb-time";
 
 type ToolItem = Extract<TranscriptItem, { kind: "tool" }>;
@@ -36,9 +35,11 @@ function toolsLabel(tools: ToolItem[]): string {
 
 export function BotBubble({ text }: { text: string }) {
   return (
-    <div className="fb-bubble fb-prose self-start bg-fb-bot text-fb-text">
-      <Markdown remarkPlugins={remarkPlugins}>{text}</Markdown>
-    </div>
+    <Message from="assistant">
+      <MessageContent>
+        <MessageResponse>{text}</MessageResponse>
+      </MessageContent>
+    </Message>
   );
 }
 
@@ -52,23 +53,21 @@ function withMentions(text: string, mentions: MentionOption[]) {
 }
 
 export function MyBubble({ text, mentions = [] }: { text: string; mentions?: MentionOption[] }) {
-  return <div className="fb-bubble self-end whitespace-pre-wrap bg-fb-me text-fb-me-text">{withMentions(text, mentions)}</div>;
+  return (
+    <Message from="user">
+      <MessageContent>{withMentions(text, mentions)}</MessageContent>
+    </Message>
+  );
 }
 
 function ToolCalls({ tools, live }: { tools: ToolItem[]; live: boolean }) {
-  const [open, setOpen] = useState(false);
   return (
-    <Collapsible open={open} onOpenChange={setOpen} className="flex flex-col items-center">
-      <CollapsibleTrigger className={`${systemLine} cursor-pointer hover:text-fb-text ${live ? "animate-pulse" : ""}`}>
-        {toolsLabel(tools)}
-        <CaretRightIcon size={10} className={open ? "rotate-90 transition-transform" : "transition-transform"} />
-      </CollapsibleTrigger>
-      <CollapsibleContent className="mb-1 flex max-w-full flex-col gap-1 rounded-[10px] bg-fb-bot px-3 py-2">
-        {tools.map((tool) => (
-          <code key={tool.id} className="break-all font-mono text-xs text-fb-preview">{tool.name} {tool.detail}</code>
-        ))}
-      </CollapsibleContent>
-    </Collapsible>
+    <Tool>
+      <ToolHeader title={toolsLabel(tools)} state={live ? "running" : "done"} />
+      <ToolContent>
+        {tools.map((tool) => <ToolInput key={tool.id} name={tool.name} input={tool.detail} />)}
+      </ToolContent>
+    </Tool>
   );
 }
 
@@ -90,7 +89,7 @@ function PeerMessage({ direction, name, text, bots }: { direction: "from" | "to"
           {shown}
         </span>
         <div className={`fb-bubble fb-prose border text-fb-text ${direction === "to" ? "border-dashed" : ""}`} style={frame}>
-          <Markdown remarkPlugins={remarkPlugins}>{text}</Markdown>
+          <MessageResponse>{text}</MessageResponse>
         </div>
       </div>
     </div>
@@ -135,7 +134,7 @@ export function Thinking({ index }: { index: number }) {
       <i className="fb-dot" style={style} />
       <i className="fb-dot [animation-delay:200ms]" style={style} />
       <i className="fb-dot mr-1 [animation-delay:400ms]" style={style} />
-      Thinking
+      <Shimmer>Thinking</Shimmer>
     </div>
   );
 }
@@ -149,20 +148,15 @@ export interface CardActions {
 }
 
 export function Transcript({ view, bots, pending, onTakeOver, cards }: { view: BotView; bots: BotSummary[]; pending: { key: string; text: string }[]; onTakeOver: () => void; cards: CardActions }) {
-  const bottom = useRef<HTMLDivElement>(null);
   const rows = groupTools(view.items);
   const botIndex = Math.max(bots.findIndex((bot) => bot.id === view.profile.id), 0);
-
-  useEffect(() => {
-    bottom.current?.scrollIntoView({ block: "end" });
-  }, [rows.length, view.partial, pending.length, view.takeover, view.busy, view.approvals.length, view.secretRequests.length, view.connectionRequests.length]);
 
   let previousAt = 0;
   const empty = rows.length === 0 && pending.length === 0 && !view.busy;
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-width:none]">
-      <div className="flex min-h-full w-full flex-col gap-1.5 px-3 py-4 md:px-5">
-        {empty ? <div className="grid flex-1 place-items-center"><Avatar index={botIndex} size={64} /></div> : null}
+    <Conversation>
+      <ConversationContent>
+        {empty ? <ConversationEmptyState><Avatar index={botIndex} size={64} /></ConversationEmptyState> : null}
         {rows.map((row, index) => {
           const showTime = row.at - previousAt > timeGapMs;
           previousAt = row.at;
@@ -177,22 +171,21 @@ export function Transcript({ view, bots, pending, onTakeOver, cards }: { view: B
         {view.partial === null ? null : <BotBubble text={view.partial} />}
         {view.busy && view.partial === null ? <Thinking index={botIndex} /> : null}
         {view.takeover === null ? null : (
-          <div className="fb-bubble my-1 flex flex-col gap-2 self-start bg-fb-control p-4 text-fb-text ring-1 ring-fb-action/50">
-            <span className="fb-caption flex items-center gap-1.5 font-semibold text-fb-control-text">
-              <HandPalmIcon size={14} weight="fill" />
-              Needs you
-            </span>
-            <span className="text-[15px] font-semibold leading-5">{view.takeover.site}</span>
+          <Confirmation>
+            <ConfirmationLabel icon={<HandPalmIcon size={14} weight="fill" />}>Needs you</ConfirmationLabel>
+            <ConfirmationTitle>{view.takeover.site}</ConfirmationTitle>
             <span>{view.takeover.reason}</span>
-            <Button size="sm" variant="action" className="mt-1 w-fit" onClick={onTakeOver}>Open computer</Button>
-          </div>
+            <ConfirmationActions>
+              <ConfirmationAction variant="action" onClick={onTakeOver}>Open computer</ConfirmationAction>
+            </ConfirmationActions>
+          </Confirmation>
         )}
         {view.approvals.map((approval) => <ApprovalCard key={approval.id} approval={approval} onDecide={(decision) => cards.onDecide(approval.id, decision)} />)}
         {view.secretRequests.map((request) => <SecretCard key={request.id} request={request} onSubmit={(value) => cards.onSubmitSecret(request.id, value)} onDismiss={() => cards.onDismissSecret(request.id)} />)}
         {view.connectionRequests.map((request) => <ConnectCard key={request.id} request={request} onConnect={() => cards.onConnect(request.serverId, request.id)} onDismiss={() => cards.onDismissConnection(request.id)} />)}
         {view.error === null ? null : <div className="px-3 text-xs leading-4 text-fb-danger-text [overflow-wrap:anywhere]">{view.error}</div>}
-        <div ref={bottom} />
-      </div>
-    </div>
+      </ConversationContent>
+      <ConversationScrollButton />
+    </Conversation>
   );
 }

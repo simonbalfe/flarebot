@@ -1,4 +1,4 @@
-import { Button } from "@/components/ui/button";
+import { Confirmation, ConfirmationAction, ConfirmationActions, ConfirmationLabel, ConfirmationTitle } from "@/components/ai-elements/confirmation";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { CheckIcon, KeyIcon, ShieldCheckIcon, XIcon } from "@phosphor-icons/react";
@@ -6,8 +6,6 @@ import { useState } from "react";
 import type { ActionEntry, ApprovalSummary, SecretRequestSummary, SecretSummary } from "./api";
 import { formatListTime } from "./format";
 
-const card = "fb-bubble my-1 flex flex-col gap-2 self-start bg-fb-control p-4 text-fb-text ring-1 ring-fb-action/50";
-const cardLabel = "fb-caption flex items-center gap-1.5 font-semibold text-fb-control-text";
 const iconButton = "grid size-9 cursor-pointer place-items-center rounded-full text-fb-preview hover:bg-fb-active hover:text-fb-text md:size-7";
 
 export type Decision = "once" | "always" | "deny";
@@ -19,19 +17,16 @@ export function ApprovalCard({ approval, onDecide }: { approval: ApprovalSummary
     onDecide(decision);
   };
   return (
-    <div className={card}>
-      <span className={cardLabel}>
-        <ShieldCheckIcon size={14} weight="fill" />
-        Needs approval
-      </span>
-      <span className="text-[15px] font-semibold leading-5 [overflow-wrap:anywhere]">{approval.title}</span>
+    <Confirmation>
+      <ConfirmationLabel icon={<ShieldCheckIcon size={14} weight="fill" />}>Needs approval</ConfirmationLabel>
+      <ConfirmationTitle>{approval.title}</ConfirmationTitle>
       {approval.detail === "" ? null : <pre className="max-h-48 overflow-auto whitespace-pre-wrap font-mono text-xs text-fb-preview [overflow-wrap:anywhere]">{approval.detail}</pre>}
-      <div className="mt-1 flex flex-wrap gap-2">
-        <Button size="sm" variant="action" disabled={busy} onClick={() => decide("once")}>{approval.kind === "secret" ? "Allow" : "Allow once"}</Button>
-        {approval.canAlways ? <Button size="sm" variant="secondary" disabled={busy} onClick={() => decide("always")}>Always allow</Button> : null}
-        <Button size="sm" variant="secondary" disabled={busy} onClick={() => decide("deny")}>Deny</Button>
-      </div>
-    </div>
+      <ConfirmationActions>
+        <ConfirmationAction variant="action" disabled={busy} onClick={() => decide("once")}>{approval.kind === "secret" ? "Allow" : "Allow once"}</ConfirmationAction>
+        {approval.canAlways ? <ConfirmationAction variant="secondary" disabled={busy} onClick={() => decide("always")}>Always allow</ConfirmationAction> : null}
+        <ConfirmationAction variant="secondary" disabled={busy} onClick={() => decide("deny")}>Deny</ConfirmationAction>
+      </ConfirmationActions>
+    </Confirmation>
   );
 }
 
@@ -39,34 +34,33 @@ export function SecretCard({ request, onSubmit, onDismiss }: { request: SecretRe
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
   return (
-    <form
-      className={card}
-      autoComplete="off"
-      onSubmit={(event) => {
-        event.preventDefault();
-        if (value === "") return;
-        setBusy(true);
-        void onSubmit(value).then((saved) => {
-          setBusy(false);
-          if (saved) setValue("");
-        });
-      }}
-    >
-      <span className={cardLabel}>
-        <KeyIcon size={14} weight="fill" />
-        Secure Form
-      </span>
-      <span className="text-[15px] font-semibold leading-5">{request.site}</span>
-      <span>{request.purpose}</span>
-      <Label className="flex flex-col items-start gap-1.5">
-        <span className="fb-caption font-medium">{request.name}</span>
-        <Input type="password" autoComplete="new-password" size="sm" value={value} onChange={(event) => setValue(event.target.value)} />
-      </Label>
-      <div className="mt-1 flex flex-wrap gap-2">
-        <Button type="submit" size="sm" variant="action" disabled={busy || value === ""}>Save</Button>
-        <Button type="button" size="sm" variant="secondary" disabled={busy} onClick={onDismiss}>Dismiss</Button>
-      </div>
-    </form>
+    <Confirmation>
+      <form
+        className="flex flex-col gap-2"
+        autoComplete="off"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (value === "") return;
+          setBusy(true);
+          void onSubmit(value).then((saved) => {
+            setBusy(false);
+            if (saved) setValue("");
+          });
+        }}
+      >
+        <ConfirmationLabel icon={<KeyIcon size={14} weight="fill" />}>Secure Form</ConfirmationLabel>
+        <ConfirmationTitle>{request.site}</ConfirmationTitle>
+        <span>{request.purpose}</span>
+        <Label className="flex flex-col items-start gap-1.5">
+          <span className="fb-caption font-medium">{request.name}</span>
+          <Input type="password" autoComplete="new-password" size="sm" value={value} onChange={(event) => setValue(event.target.value)} />
+        </Label>
+        <ConfirmationActions>
+          <ConfirmationAction type="submit" variant="action" disabled={busy || value === ""}>Save</ConfirmationAction>
+          <ConfirmationAction variant="secondary" disabled={busy} onClick={onDismiss}>Dismiss</ConfirmationAction>
+        </ConfirmationActions>
+      </form>
+    </Confirmation>
   );
 }
 

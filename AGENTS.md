@@ -52,6 +52,7 @@ Run both checks after every code change. Docker or OrbStack must be running for 
 | `src/web/` | React UI |
 | `src/web/styles.css` | Design tokens, with the shadcn theme variables mapped to the `fb-*` tokens |
 | `src/web/components/ui/` | shadcn/ui components, added with the shadcn CLI (`components.json`) and restyled to the `fb-*` look |
+| `src/web/components/ai-elements/` | Chat parts copied from Vercel AI Elements (Apache 2.0) and adapted to flarebot types, Phosphor icons and `react-markdown`: Conversation, Message, Tool, Confirmation, Shimmer |
 | `computer/` | Desktop image, cookie loader, and `browser-tab.mjs` (CDP tab control, sent by the Worker at run time) |
 | `src-tauri/` | Tauri 2 shell around the same web UI for the Mac only: `tauri.conf.json` plus the `tauri.macos.conf.json` override, `src/lib.rs` (entry point), `src/desktop.rs` (starts and stops the bundled `flarebot-local` daemon, hides the window on close), and icons. Crate and CLI pins are exact |
 | `capacitor.config.ts`, `android/`, `ios/` | Capacitor shells for the Android and iPhone apps, loading the deployed URL. The native projects are committed and edited by hand; `cap sync` only rewrites the gitignored web copy and config |
