@@ -42,12 +42,12 @@ Run both checks after every code change. Docker or OrbStack must be running for 
 | `src/worker/openapi.ts` | `doc()` attaches a summary and schemas to a route, and `openApiDocument` builds `/api/openapi.json` from the routes that carry one |
 | `src/worker/push.ts` | Web Push: VAPID keys, payload encryption, send |
 | `src/worker/native-push.ts` | Phone push: APNs with an ES256 JWT, FCM HTTP v1 with a service account token |
-| `src/web/push.ts` | Notification permission, Web Push or native registration in the phone apps, opening a chat from a notification |
+| `src/web/push.ts` | Native push registration in the phone apps and opening a chat from a notification |
 | `src/web/factory/` | Experimental 3D view in three.js, loaded as its own chunk: `activity.ts` maps a Bot's state to a station, `world.ts` builds the sky, platform and stations, `bots.ts` moves the Bots, `scene.ts` owns the renderer, camera and label positions, `FactoryView.tsx` polls and draws the labels |
 | `src/web/mobile.ts` | Phone breakpoint hook and the visible-viewport height for the keyboard |
 | `src/web/router.tsx` | TanStack Router: sign-in gate, `/` with the chat, thread, panel and view in its search params, and `/connect-mac` |
 | `src/web/queries.ts` | TanStack Query client, query keys and every polled query, with the error grace period for polls |
-| `public/` | PWA manifest, icons and service worker |
+| `public/` | Web manifest, icons, and `sw.js`, which only removes old service workers |
 | `migrations/` | D1 schema for Better Auth |
 | `src/web/` | React UI |
 | `src/web/styles.css` | Design tokens, with the shadcn theme variables mapped to the `fb-*` tokens |

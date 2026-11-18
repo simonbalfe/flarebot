@@ -44,7 +44,7 @@ Inspired by the UX of [Grok Bot](https://docs.x.ai/grok-bot/overview).
 | Desktop app (Tauri) that starts the Mac daemon and keeps it running when the window is closed | Built, compiles, not yet run |
 | Android and iOS apps (Capacitor) around the same deployed UI, without the Mac daemon | Android debug APK builds; iOS project generated, needs Xcode to build |
 | App library of 194 checked remote MCP servers, with one-click sign-in for 132 and a Connect card when a Bot needs an app | Built. Sign-in not yet tested end to end; 34 apps need a registered OAuth app in Infisical first |
-| Push notifications when a Bot finishes, from the bell in the chat list | Web Push built, encryption and signing checked locally |
+| Push notifications when a Bot finishes, from the bell in the chat list | Phone apps only (native push). The web app has no service worker, so no browser push |
 | Native push on the phone apps through APNs and FCM | Built, not yet run: needs the APNs key and a Firebase project in Infisical |
 | Optional Langfuse traces for every Bot run, with each model turn and tool call nested, on when the `LANGFUSE_*` secrets are in Infisical | Built, checked against the self-hosted Langfuse |
 | Experimental 3D view on desktop: Bots at work on a factory platform in an orange cloud sky, from the Chats / 3D switch or `/?view=3d` | Built, tested locally |

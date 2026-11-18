@@ -68,7 +68,7 @@ Bubbles cross only through messages: `message_bot`, the replies it triggers, and
 - On launch the shell starts `flarebot-local` (bundled as the resource `daemon/flarebot-local.ts`) with `~/.bun/bin/bun run --url <app url>`, and stops it with SIGTERM on quit. `FLAREBOT_APP_URL` is read at compile time, defaulting to `http://127.0.0.1:8787`; `scripts/tauri.sh` sets it to the deployed URL for both `dev` and `build`. If the LaunchAgent daemon is already running, the second copy exits on the lock and the app uses the running one.
 - Closing the window hides it and keeps the daemon running. Clicking the Dock icon shows it again, and Quit stops the daemon.
 - The shell has no Rust commands, tray icon or login item yet. Native approval dialogs are still the daemon's `osascript` dialogs. Bun must be installed at `~/.bun/bin/bun`, and `node`, `npm` and `claude` must be on the login shell's `PATH`.
-- Web Push and the service worker are the browser's. They are not wired to the desktop window.
+- The desktop window has no push notifications.
 - `window.confirm` returns false without showing anything in the desktop window, because wry's macOS WebView delegate has no JavaScript dialog handlers. The web UI uses `ConfirmDialog` instead.
 
 Tauri builds the Mac app only. `src-tauri/tauri.macos.conf.json` holds the `app` and `dmg` targets and the bundled daemon.
@@ -548,7 +548,6 @@ A routine is a scheduled prompt that runs in the Bot's main chat.
 | Computer count | `max_instances` isn't available on the `durable_object` policy. There is one computer, named `me`, and running containers count toward the account limit |
 | Paste | Local clipboard paste doesn't reach the desktop during takeover |
 | Local image | `linux/amd64`, so it runs under emulation on Apple silicon |
-| Updates | The UI polls instead of using a WebSocket |
 | Poll errors | A failed poll shows no error until that poll has been failing for 15 seconds while the app is visible. The timer restarts when the app returns to the foreground, because phones cancel requests in flight when an app is suspended |
 | Browser | Bots see and control only web pages. Chrome's own UI, its dialogs and other desktop apps aren't reachable by a Bot |
 | Browser speed | Browser actions run one at a time across all Bots, each starting a short `node` process |
@@ -600,7 +599,7 @@ flarebot installs as a web app (PWA) on Android and iPhone.
 | Piece | Where |
 | --- | --- |
 | Manifest, icons | `public/manifest.webmanifest`, `public/icon-192.png`, `public/icon-512.png` (also the maskable icon), `public/apple-touch-icon.png`, `public/icon.svg` |
-| Service worker | `public/sw.js`: caches the app shell so it opens offline. It handles only top-level page loads of the app, never `/api/` or `/mac/` and never iframes, so the live browser view (`/api/computer/vnc/vnc.html`) can't replace the cached app |
+| Service worker | None. `public/sw.js` only deletes its caches and unregisters itself, so copies installed before the phone apps clean themselves up, and `src/web/main.tsx` unregisters any it finds. The app is always loaded fresh from the network |
 | Head tags | `index.html`: theme colours, Apple web-app tags, `interactive-widget=resizes-content` so Android resizes the layout for the keyboard |
 | Visible-viewport height | `src/web/mobile.ts` sets `--fb-viewport-height` from `visualViewport`, so the composer stays above the iPhone keyboard |
 | Updates | `src/web/main.tsx` checks for a new service worker whenever the app comes back to the foreground, and reloads once when a new one takes control. Bump `shellCache` in `public/sw.js` when the shell changes |
@@ -620,24 +619,20 @@ Install on Android: open the site in Chrome, then menu → **Install app**. On i
 **Limits:**
 - Chrome's **Desktop site** setting makes the page ignore the mobile viewport, so a phone shows the desktop layout until it's switched off.
 - In portrait the live view is a landscape desktop fitted to a narrow screen; turn the phone sideways to take over.
-- Push needs the installed app on iPhone (iOS 16.4+); Safari tabs can't subscribe. Push is off in `bun run dev`, which registers no service worker.
+- Browsers get no push notifications; use the phone apps.
 
 ### Push notifications
 
-The bell in the chat list footer turns push on for that device.
+The bell in the chat list footer turns push on for that device. It shows only in the phone apps; the web app removed its service worker, so browsers get no push. `User` still keeps old browser subscriptions and drops each one when its endpoint answers 404 or 410.
 
-1. `src/web/push.ts` asks for permission, fetches the public key from `GET /api/push/key`, subscribes through the service worker and saves the subscription with `POST /api/push/subscriptions`. Turning it off calls `DELETE /api/push/subscriptions`.
-2. `User` keeps the subscriptions and a VAPID key pair it generates on first use, both in its own storage.
-3. `Bot` records each message you send to it or one of its threads. When that run settles, it sends the last answer, or the error, as a notification. Group replies notify as they're posted. Bot to Bot mailbox runs and stopped runs don't notify.
-4. `src/worker/push.ts` encrypts the payload (RFC 8291, `aes128gcm`) and signs a VAPID JWT with Web Crypto. Endpoints that answer 404 or 410 are dropped.
-5. `public/sw.js` shows the notification, tagged per Bot, thread or group so a newer one replaces the old. Tapping it focuses the app and opens that chat (`/?bot=`, `&thread=`, or `/?group=`).
+`Bot` records each message you send to it or one of its threads. When that run settles, it sends the last answer, or the error, as a notification. Group replies notify as they're posted. Bot to Bot mailbox runs and stopped runs don't notify.
 
-**Phone apps** use native push instead of the service worker:
+**Phone apps** use native push:
 
 1. In the Capacitor apps the bell calls `@capacitor/push-notifications`: permission, then `register()`, which returns an APNs device token on iPhone and an FCM token on Android. `POST /api/push/devices` saves `{platform, token}` and the token is kept in `localStorage`. On launch the app registers again and replaces the token if it changed. Turning it off calls `DELETE /api/push/devices` and `unregister()`.
 2. `User` keeps the devices next to the browser subscriptions, and `notify` sends to both.
 3. `src/worker/native-push.ts` sends to APNs with an ES256 JWT from the `.p8` key, cached for 50 minutes. It tries production first and the sandbox on `BadDeviceToken`, so Xcode debug builds work too. Android goes through FCM HTTP v1 with an OAuth token from the service account. Tokens APNs answers 410 for, or FCM marks `UNREGISTERED`, are dropped.
-4. Tapping a notification fires `pushNotificationActionPerformed`, and the app opens the `url` from its data like the service worker does.
+4. Tapping a notification fires `pushNotificationActionPerformed`, and the app opens the `url` from its data (`/?bot=`, `&thread=`, or `/?group=`).
 
 APNs only accepts HTTP/2. Deployed Workers reach it through Cloudflare's proxy, but local `workerd` speaks HTTP/1.1, so iPhone push works only from the deployed Worker. A platform whose secrets are missing logs `push_unconfigured` and is skipped.
 

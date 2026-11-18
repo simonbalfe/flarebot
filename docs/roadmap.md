@@ -10,7 +10,7 @@
 | 3. Trust | Approval cards, permissions, Secure Form, action log | Built, not yet run by a Bot |
 | 4. Reuse | Skills, routines, test, dry run, run history | Skills, routines with run now and run history built. Dry run next |
 | 5. Many Bots | Pinning, a tab and folder per Bot, roles, group chats | Tab and folder per Bot, roles, queued Bot messaging and group chats built |
-| 6. Everywhere | Push, dictation, email and webhook triggers, voice | Web Push built; phone apps moved from Tauri to Capacitor with native push built, waiting on APNs and Firebase credentials. Move the phones to Expo only if voice or phone-only features become central |
+| 6. Everywhere | Push, dictation, email and webhook triggers, voice | Web Push removed with the service worker; phone apps moved from Tauri to Capacitor with native push built, waiting on APNs and Firebase credentials. Move the phones to Expo only if voice or phone-only features become central |
 
 ## Test on real Cloudflare
 

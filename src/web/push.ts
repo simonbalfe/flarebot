@@ -12,12 +12,8 @@ function nativePlatform(): NativePlatform | null {
   return Capacitor.isNativePlatform() && (platform === "ios" || platform === "android") ? platform : null;
 }
 
-function webPushSupported(): boolean {
-  return import.meta.env.PROD && "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
-}
-
 export function pushSupported(): boolean {
-  return nativePlatform() !== null || webPushSupported();
+  return nativePlatform() !== null;
 }
 
 function storedToken(): string | null {
@@ -35,19 +31,6 @@ function storeToken(token: string | null): void {
   } catch {
     return;
   }
-}
-
-function keyBytes(publicKey: string): Uint8Array<ArrayBuffer> {
-  const binary = atob(publicKey.replaceAll("-", "+").replaceAll("_", "/"));
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
-  return bytes;
-}
-
-async function currentWebSubscription(): Promise<PushSubscription | null> {
-  if (!webPushSupported()) return null;
-  const registration = await navigator.serviceWorker.ready;
-  return registration.pushManager.getSubscription();
 }
 
 async function nextToken(): Promise<string> {
@@ -76,10 +59,7 @@ async function registerDevice(platform: NativePlatform): Promise<void> {
 
 export async function restorePush(): Promise<boolean> {
   const platform = nativePlatform();
-  if (platform === null) {
-    const subscription = await currentWebSubscription();
-    return subscription !== null && Notification.permission === "granted";
-  }
+  if (platform === null) return false;
   if (storedToken() === null || (await PushNotifications.checkPermissions()).receive !== "granted") return false;
   await registerDevice(platform);
   return true;
@@ -87,49 +67,26 @@ export async function restorePush(): Promise<boolean> {
 
 export async function enablePush(): Promise<boolean> {
   const platform = nativePlatform();
-  if (platform !== null) {
-    if ((await PushNotifications.requestPermissions()).receive !== "granted") return false;
-    await registerDevice(platform);
-    return true;
-  }
-  if ((await Notification.requestPermission()) !== "granted") return false;
-  const registration = await navigator.serviceWorker.ready;
-  const { publicKey } = await api.pushKey();
-  const existing = await registration.pushManager.getSubscription();
-  const subscription = existing ?? (await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(publicKey) }));
-  await api.addPushSubscription(subscription.toJSON());
+  if (platform === null) return false;
+  if ((await PushNotifications.requestPermissions()).receive !== "granted") return false;
+  await registerDevice(platform);
   return true;
 }
 
 export async function disablePush(): Promise<void> {
-  if (nativePlatform() !== null) {
-    const token = storedToken();
-    if (token !== null) await api.removePushDevice(token);
-    storeToken(null);
-    await PushNotifications.unregister();
-    return;
-  }
-  const subscription = await currentWebSubscription();
-  if (subscription === null) return;
-  await api.removePushSubscription(subscription.endpoint);
-  await subscription.unsubscribe();
+  if (nativePlatform() === null) return;
+  const token = storedToken();
+  if (token !== null) await api.removePushDevice(token);
+  storeToken(null);
+  await PushNotifications.unregister();
 }
 
 export function onNotificationOpen(open: (url: URL) => void): () => void {
-  if (nativePlatform() !== null) {
-    const handle = PushNotifications.addListener("pushNotificationActionPerformed", (action) => {
-      const data: unknown = action.notification.data;
-      if (typeof data !== "object" || data === null || !("url" in data) || typeof data.url !== "string") return;
-      open(new URL(data.url, window.location.origin));
-    });
-    return () => void handle.then((listener) => listener.remove());
-  }
-  if (!("serviceWorker" in navigator)) return () => undefined;
-  const listener = (event: MessageEvent<unknown>) => {
-    const data = event.data;
-    if (typeof data !== "object" || data === null || !("type" in data) || data.type !== "flarebot-open" || !("url" in data) || typeof data.url !== "string") return;
+  if (nativePlatform() === null) return () => undefined;
+  const handle = PushNotifications.addListener("pushNotificationActionPerformed", (action) => {
+    const data: unknown = action.notification.data;
+    if (typeof data !== "object" || data === null || !("url" in data) || typeof data.url !== "string") return;
     open(new URL(data.url, window.location.origin));
-  };
-  navigator.serviceWorker.addEventListener("message", listener);
-  return () => navigator.serviceWorker.removeEventListener("message", listener);
+  });
+  return () => void handle.then((listener) => listener.remove());
 }
