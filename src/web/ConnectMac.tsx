@@ -1,4 +1,4 @@
-import { Button } from "@cloudflare/kumo";
+import { Button } from "@/components/ui/button";
 import { useEffect, useState } from "react";
 import { api, type MacStatus } from "./api";
 import { Avatar } from "./Avatar";
@@ -40,14 +40,14 @@ export function ConnectMac() {
           <Avatar index={0} size={56} />
           <h1 className="fb-body font-semibold">{title}</h1>
           {phase.kind === "ready" ? <span className="font-mono text-[22px] tracking-[0.2em]">{phase.userCode}</span> : null}
-          {phase.kind === "failed" ? <span className="fb-caption text-red-500">{phase.message}</span> : null}
+          {phase.kind === "failed" ? <span className="fb-caption text-fb-danger-text">{phase.message}</span> : null}
         </div>
         {phase.kind === "ready" ? (
-          <Button type="button" className="w-full justify-center! rounded-full! bg-fb-me! text-fb-me-text!" onClick={() => void connect(phase.name)}>Connect</Button>
+          <Button type="button" className="w-full" onClick={() => void connect(phase.name)}>Connect</Button>
         ) : null}
-        {phase.kind === "connecting" ? <Button type="button" className="w-full justify-center! rounded-full!" disabled>Connecting…</Button> : null}
+        {phase.kind === "connecting" ? <Button type="button" className="w-full" disabled>Connecting…</Button> : null}
         {phase.kind === "connected" || phase.kind === "expired" ? (
-          <Button type="button" variant="secondary" className="w-full justify-center! rounded-full!" onClick={() => window.location.assign("/")}>Open flarebot</Button>
+          <Button type="button" variant="secondary" className="w-full" onClick={() => window.location.assign("/")}>Open flarebot</Button>
         ) : null}
       </div>
     </main>

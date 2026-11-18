@@ -1,9 +1,10 @@
-import { Button, Dialog, Input } from "@cloudflare/kumo";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { CheckIcon, MagnifyingGlassIcon, PlugsConnectedIcon } from "@phosphor-icons/react";
 import { useMemo, useState } from "react";
 import type { AppEntry, ConnectionRequestSummary } from "./api";
 
-const primary = "rounded-full! bg-fb-action! font-semibold! text-fb-action-text!";
 const card = "fb-bubble my-1 flex flex-col gap-2 self-start bg-fb-control p-4 text-fb-text ring-1 ring-fb-action/50";
 const chip = "fb-caption h-6 shrink-0 cursor-pointer rounded-full px-2.5";
 
@@ -35,7 +36,7 @@ function AppRow({ app, categoryLabel, onAdd }: { app: AppEntry; categoryLabel: s
         ) : !app.ready ? (
           <span className="fb-caption shrink-0 text-fb-faint" title={`Needs a registered OAuth app for ${app.name}`}>Setup</span>
         ) : needsToken ? null : (
-          <Button size="sm" className={`${primary} shrink-0`} disabled={busy} onClick={add}>{app.serverId === null ? (app.auth === "none" ? "Add" : "Connect") : "Sign in"}</Button>
+          <Button size="sm" variant="action" className="shrink-0" disabled={busy} onClick={add}>{app.serverId === null ? (app.auth === "none" ? "Add" : "Connect") : "Sign in"}</Button>
         )}
       </div>
       {needsToken && app.ready ? (
@@ -47,7 +48,7 @@ function AppRow({ app, categoryLabel, onAdd }: { app: AppEntry; categoryLabel: s
           }}
         >
           <Input aria-label={`${app.name} API key`} placeholder="API key" type="password" size="sm" value={token} onChange={(event) => setToken(event.target.value)} />
-          <Button type="submit" size="sm" className={`${primary} shrink-0`} disabled={busy || token.trim() === ""}>Add</Button>
+          <Button type="submit" size="sm" variant="action" className="shrink-0" disabled={busy || token.trim() === ""}>Add</Button>
         </form>
       ) : null}
     </div>
@@ -63,12 +64,12 @@ export function AppLibrary({ apps, categories, onAdd, onClose }: { apps: AppEntr
   }, [apps, query, category]);
   const used = Object.keys(categories).filter((key) => apps.some((app) => app.category === key));
   return (
-    <Dialog.Root open onOpenChange={(open: boolean) => { if (!open) onClose(); }}>
-      <Dialog size="lg" className="flex max-h-[min(720px,90dvh)] flex-col gap-3 rounded-[28px]! border-0! bg-fb-pane! p-5! [corner-shape:squircle]">
-        <Dialog.Title className="fb-body font-semibold">Apps</Dialog.Title>
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent aria-describedby={undefined} className="max-h-[min(720px,90dvh)] gap-3 p-5 sm:max-w-[640px]">
+        <DialogTitle>Apps</DialogTitle>
         <div className="relative">
           <MagnifyingGlassIcon size={14} className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-fb-faint" />
-          <Input aria-label="Search apps" placeholder="Search" size="sm" className="pl-8!" value={query} onChange={(event) => setQuery(event.target.value)} />
+          <Input aria-label="Search apps" placeholder="Search" size="sm" className="pl-8" value={query} onChange={(event) => setQuery(event.target.value)} />
         </div>
         <div className="flex gap-1 overflow-x-auto pb-1 [scrollbar-width:none]">
           <button type="button" className={`${chip} ${category === null ? "bg-fb-me text-fb-me-text" : "bg-fb-active"}`} onClick={() => setCategory(null)}>All</button>
@@ -80,8 +81,8 @@ export function AppLibrary({ apps, categories, onAdd, onClose }: { apps: AppEntr
           {shown.map((app) => <AppRow key={app.id} app={app} categoryLabel={categories[app.category] ?? app.category} onAdd={onAdd} />)}
           {shown.length === 0 ? <div className="fb-caption py-6 text-center text-fb-preview">No apps</div> : null}
         </div>
-      </Dialog>
-    </Dialog.Root>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -96,8 +97,8 @@ export function ConnectCard({ request, onConnect, onDismiss }: { request: Connec
       <span className="text-[15px] font-semibold leading-5">{request.name}</span>
       {request.reason === "" ? null : <span>{request.reason}</span>}
       <div className="mt-1 flex flex-wrap gap-2">
-        <Button size="sm" className={primary} disabled={busy} onClick={() => { setBusy(true); onConnect(); }}>Connect</Button>
-        <Button size="sm" variant="secondary" className="rounded-full!" disabled={busy} onClick={onDismiss}>Dismiss</Button>
+        <Button size="sm" variant="action" disabled={busy} onClick={() => { setBusy(true); onConnect(); }}>Connect</Button>
+        <Button size="sm" variant="secondary" disabled={busy} onClick={onDismiss}>Dismiss</Button>
       </div>
     </div>
   );

@@ -1,6 +1,14 @@
-import { Button, createKumoToastManager, Dialog, DropdownMenu, Input, Select, Sidebar, Toasty } from "@cloudflare/kumo";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Sidebar, SidebarProvider } from "@/components/ui/sidebar";
+import { Toaster } from "@/components/ui/sonner";
 import { SquaresFourIcon, BellIcon, BellSlashIcon, CaretLeftIcon, CaretRightIcon, CheckIcon, CopyIcon, LockSimpleIcon, MagnifyingGlassIcon, MonitorIcon, PlusIcon, SignOutIcon, UploadSimpleIcon, UsersThreeIcon, XIcon } from "@phosphor-icons/react";
-import { lazy, type ReactNode, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { type CSSProperties, lazy, type ReactNode, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { api, type AppEntry, type SecretSummary, type BotSummary, type BotView, type CliSummary, type ComputerStatus, type GroupSummary, isSignedIn, type MacStatus, type McpServerSummary, type OwnSkill, type PickerOption, type PoolKind, type SkillSummary, type ThreadSummary } from "./api";
 import { authClient } from "./auth";
 import { Avatar, botMentions } from "./Avatar";
@@ -27,7 +35,8 @@ const pollErrorGraceMs = 15_000;
 const sidebarWidth = 280;
 const minGroupBots = 2;
 const maxGroupBots = 6;
-const toasts = createKumoToastManager();
+const minSidebarWidth = 224;
+const maxSidebarWidth = 420;
 const iconButton = "grid size-9 cursor-pointer place-items-center rounded-full text-fb-preview hover:bg-fb-active hover:text-fb-text md:size-7";
 const longPressMs = 450;
 const viewTab = "h-6 cursor-pointer rounded-full px-2.5";
@@ -48,13 +57,12 @@ function RowMenu({ actions, className = "", children }: { actions: RowAction[]; 
   return (
     <DropdownMenu
       open={open}
-      onOpenChange={(next: boolean) => {
+      onOpenChange={(next) => {
         if (!next) setOpen(false);
       }}
     >
-      <DropdownMenu.Trigger
-        render={<div className={`fb-no-callout ${className}`} />}
-        nativeButton={false}
+      <DropdownMenuTrigger
+        asChild
         onContextMenu={(event) => {
           event.preventDefault();
           setOpen(true);
@@ -77,13 +85,13 @@ function RowMenu({ actions, className = "", children }: { actions: RowAction[]; 
           event.stopPropagation();
         }}
       >
-        {children}
-      </DropdownMenu.Trigger>
-      <DropdownMenu.Content align="start" className="bg-fb-pane">
+        <div className={`fb-no-callout ${className}`}>{children}</div>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start">
         {actions.map((action) => (
-          <DropdownMenu.Item key={action.label} variant={action.danger === true ? "danger" : undefined} onClick={action.onSelect}>{action.label}</DropdownMenu.Item>
+          <DropdownMenuItem key={action.label} variant={action.danger === true ? "destructive" : "default"} onSelect={action.onSelect}>{action.label}</DropdownMenuItem>
         ))}
-      </DropdownMenu.Content>
+      </DropdownMenuContent>
     </DropdownMenu>
   );
 }
@@ -138,9 +146,9 @@ function PushToggle() {
         return;
       }
       if (await enablePush()) setEnabled(true);
-      else toasts.add({ title: "Notifications are blocked", variant: "error" });
+      else toast.error("Notifications are blocked");
     } catch (error) {
-      toasts.add({ title: "Something went wrong", description: error instanceof Error ? error.message : String(error), variant: "error" });
+      toast.error("Something went wrong", { description: error instanceof Error ? error.message : String(error) });
     }
   };
   return (
@@ -193,10 +201,27 @@ function ChatList({ bots, groups, currentId, currentGroupId, onOpen, onOpenGroup
   );
 }
 
-function BotList(props: ChatListProps) {
+function BotList({ onResize, onResizing, ...props }: ChatListProps & { onResize: (width: number) => void; onResizing: (resizing: boolean) => void }) {
+  const startResize = (event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const handle = event.currentTarget;
+    handle.setPointerCapture(event.pointerId);
+    onResizing(true);
+    const move = (moveEvent: PointerEvent) => onResize(Math.min(maxSidebarWidth, Math.max(minSidebarWidth, moveEvent.clientX)));
+    const stop = () => {
+      onResizing(false);
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", stop);
+      handle.removeEventListener("pointercancel", stop);
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", stop);
+    handle.addEventListener("pointercancel", stop);
+  };
   return (
-    <Sidebar className="border-0! bg-fb-sidebar!">
+    <Sidebar collapsible="offcanvas" className="border-0">
       <ChatList {...props} mobile={false} />
+      <div role="separator" aria-orientation="vertical" aria-label="Resize sidebar" onPointerDown={startResize} className="absolute inset-y-0 -right-1 z-20 w-2 cursor-col-resize" />
     </Sidebar>
   );
 }
@@ -230,7 +255,7 @@ function McpSection({ servers, enabled, onToggle, onAdd, onRemove, onConnect, on
             </span>
             <span className="min-w-0 truncate">{server.name}</span>
           </button>
-          {server.auth === "oauth" && !server.hasToken ? <Button type="button" size="sm" className={submitButton} onClick={() => onConnect(server)}>Connect</Button> : null}
+          {server.auth === "oauth" && !server.hasToken ? <Button type="button" size="sm" className="w-fit" onClick={() => onConnect(server)}>Connect</Button> : null}
           {server.builtIn ? null : <button type="button" aria-label={`Remove ${server.name}`} className={iconButton} onClick={() => onRemove(server.id)}><XIcon size={12} /></button>}
         </div>
       ))}
@@ -245,7 +270,7 @@ function McpSection({ servers, enabled, onToggle, onAdd, onRemove, onConnect, on
           <Input aria-label="Name" placeholder="Name" size="sm" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
           <Input aria-label="URL" placeholder="https://…/mcp" size="sm" value={form.url} onChange={(event) => setForm({ ...form, url: event.target.value })} />
           <Input aria-label="Token" placeholder="Token" type="password" size="sm" value={form.token} onChange={(event) => setForm({ ...form, token: event.target.value })} />
-          <Button type="submit" size="sm" className="w-fit rounded-full! bg-fb-me! text-fb-me-text!" disabled={busy || form.name.trim() === "" || form.url.trim() === ""}>{busy ? "Connecting…" : "Add"}</Button>
+          <Button type="submit" size="sm" className="w-fit" disabled={busy || form.name.trim() === "" || form.url.trim() === ""}>{busy ? "Connecting…" : "Add"}</Button>
         </form>
       ) : null}
     </div>
@@ -257,7 +282,6 @@ function cliNameFrom(fileName: string): string {
 }
 
 const fileInput = "text-xs file:mr-2 file:cursor-pointer file:rounded-full file:border-0 file:bg-fb-active file:px-2.5 file:py-1";
-const submitButton = "w-fit rounded-full! bg-fb-me! text-fb-me-text!";
 
 function macInstallCommand(): string {
   return `curl -fsSL ${window.location.origin}/mac/install.sh | sh`;
@@ -294,7 +318,7 @@ function MacSection({ status, enabled, onToggle, onApprove, onUnpair }: { status
       {status?.pendingLink != null ? (
         <div className="flex items-center justify-between gap-2 border-t border-fb-line py-1.5">
           <span className="min-w-0 truncate">{status.pendingLink.name} · <span className="font-mono text-xs">{status.pendingLink.userCode}</span></span>
-          <Button type="button" size="sm" className={submitButton} onClick={() => status.pendingLink !== null && onApprove(status.pendingLink.userCode)}>Connect</Button>
+          <Button type="button" size="sm" className="w-fit" onClick={() => status.pendingLink !== null && onApprove(status.pendingLink.userCode)}>Connect</Button>
         </div>
       ) : null}
       {showInstall && status?.paired !== true ? (
@@ -373,7 +397,7 @@ function CliForm({ onAdd, onDone }: { onAdd: (input: { name: string; description
       />
       <Input aria-label="Name" placeholder="Name" size="sm" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
       <Input aria-label="Description" placeholder="Description" size="sm" value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} />
-      <Button type="submit" size="sm" className={submitButton} disabled={busy || form.file === null || form.name.trim() === ""}>{busy ? "Uploading…" : "Add"}</Button>
+      <Button type="submit" size="sm" className="w-fit" disabled={busy || form.file === null || form.name.trim() === ""}>{busy ? "Uploading…" : "Add"}</Button>
     </form>
   );
 }
@@ -397,14 +421,33 @@ function SkillForm({ onAdd, onDone }: { onAdd: (file: File) => Promise<boolean>;
       }}
     >
       <input aria-label="SKILL.md or .tar.gz" type="file" accept=".md,.gz,.tgz" className={fileInput} onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
-      <Button type="submit" size="sm" className={submitButton} disabled={busy || file === null}>{busy ? "Uploading…" : "Add"}</Button>
+      <Button type="submit" size="sm" className="w-fit" disabled={busy || file === null}>{busy ? "Uploading…" : "Add"}</Button>
     </form>
   );
 }
 
+const fieldLabel = "flex flex-col items-stretch gap-1.5";
+const fieldName = "fb-caption font-medium";
+
+function Picker({ label, value, options, onChange }: { label: string; value: string; options: PickerOption[]; onChange: (value: string) => void }) {
+  return (
+    <div className={fieldLabel}>
+      <span className={fieldName}>{label}</span>
+      <Select value={value} onValueChange={onChange}>
+        <SelectTrigger size="sm" aria-label={label} className="w-full">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent position="popper">
+          {options.map((option) => (
+            <SelectItem key={option.id} value={option.id}>{option.label}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
 function DetailsPanel({ view, index, models, efforts, mcpServers, onModel, onEffort, onClear, onRole, onForget, onToggleMcp, onAddMcp, onRemoveMcp, onConnectServer, onLibrary, children }: { view: BotView; index: number; models: PickerOption[]; efforts: PickerOption[]; mcpServers: McpServerSummary[]; onModel: (model: string) => void; onEffort: (effort: string) => void; onClear: () => void; onRole: (role: string) => void; onForget: (index: number) => void; onToggleMcp: (id: string) => void; onAddMcp: (input: { name: string; url: string; token: string }) => Promise<boolean>; onRemoveMcp: (id: string) => void; onConnectServer: (server: McpServerSummary) => void; onLibrary: () => void; children: ReactNode }) {
-  const modelItems = models.map((model) => ({ value: model.id, label: model.label }));
-  const effortItems = efforts.map((effort) => ({ value: effort.id, label: effort.label }));
   const [role, setRole] = useState(view.profile.role);
   const saveRole = () => {
     if (role.trim() !== view.profile.role) onRole(role.trim());
@@ -415,19 +458,21 @@ function DetailsPanel({ view, index, models, efforts, mcpServers, onModel, onEff
         <Avatar index={index} size={64} />
         <span className="text-[14px] font-medium">{view.profile.name}</span>
       </div>
-      <Input
-        label="Role"
-        size="sm"
-        value={role}
-        onChange={(event) => setRole(event.target.value)}
-        onBlur={saveRole}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") event.currentTarget.blur();
-        }}
-      />
+      <Label className={fieldLabel}>
+        <span className={fieldName}>Role</span>
+        <Input
+          size="sm"
+          value={role}
+          onChange={(event) => setRole(event.target.value)}
+          onBlur={saveRole}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") event.currentTarget.blur();
+          }}
+        />
+      </Label>
       <div className="grid grid-cols-2 gap-2">
-        <Select<string> label="Model" hideLabel={false} size="sm" value={view.profile.model} items={modelItems} onValueChange={(model) => model !== null && onModel(model)} />
-        <Select<string> label="Effort" hideLabel={false} size="sm" value={view.profile.effort} items={effortItems} onValueChange={(effort) => effort !== null && onEffort(effort)} />
+        <Picker label="Model" value={view.profile.model} options={models} onChange={onModel} />
+        <Picker label="Effort" value={view.profile.effort} options={efforts} onChange={onEffort} />
       </div>
       <div className="flex flex-col gap-0.5">
         <span className="text-fb-preview">Folder</span>
@@ -446,7 +491,7 @@ function DetailsPanel({ view, index, models, efforts, mcpServers, onModel, onEff
           </div>
         ))}
       </div>
-      <Button type="button" size="sm" variant="secondary" className="rounded-full!" onClick={onClear}>Clear chat</Button>
+      <Button type="button" size="sm" variant="secondary" onClick={onClear}>Clear chat</Button>
     </div>
   );
 }
@@ -484,14 +529,14 @@ function ThreadBar({ threads, projects, current, onOpen, onNew, onRename, onClos
         <button type="button" aria-label="Start thread" className={iconButton} onClick={() => onNew(null)}><PlusIcon size={14} /></button>
       ) : (
         <DropdownMenu>
-          <DropdownMenu.Trigger aria-label="Start thread" className={iconButton}><PlusIcon size={14} /></DropdownMenu.Trigger>
-          <DropdownMenu.Content align="start" className="bg-fb-pane">
-            <DropdownMenu.Item onClick={() => onNew(null)}>Own folder</DropdownMenu.Item>
-            <DropdownMenu.Separator />
+          <DropdownMenuTrigger aria-label="Start thread" className={iconButton}><PlusIcon size={14} /></DropdownMenuTrigger>
+          <DropdownMenuContent align="start">
+            <DropdownMenuItem onSelect={() => onNew(null)}>Own folder</DropdownMenuItem>
+            <DropdownMenuSeparator />
             {projects.map((project) => (
-              <DropdownMenu.Item key={project} onClick={() => onNew(project)}>{project}</DropdownMenu.Item>
+              <DropdownMenuItem key={project} onSelect={() => onNew(project)}>{project}</DropdownMenuItem>
             ))}
-          </DropdownMenu.Content>
+          </DropdownMenuContent>
         </DropdownMenu>
       )}
     </div>
@@ -502,16 +547,15 @@ type Confirmation = { title: string; action: string; run: () => void };
 
 function ConfirmDialog({ confirmation, onClose }: { confirmation: Confirmation; onClose: () => void }) {
   return (
-    <Dialog.Root open onOpenChange={(open: boolean) => { if (!open) onClose(); }}>
-      <Dialog size="sm" className="flex flex-col gap-4 rounded-[28px]! border-0! bg-fb-pane! p-6! [corner-shape:squircle]">
-        <Dialog.Title className="fb-body font-semibold">{confirmation.title}</Dialog.Title>
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent aria-describedby={undefined}>
+        <DialogTitle>{confirmation.title}</DialogTitle>
         <div className="flex justify-end gap-2">
-          <Button type="button" size="sm" variant="secondary" className="rounded-full!" onClick={onClose}>Cancel</Button>
+          <Button type="button" size="sm" variant="secondary" onClick={onClose}>Cancel</Button>
           <Button
             type="button"
             size="sm"
             variant="destructive"
-            className="rounded-full!"
             onClick={() => {
               onClose();
               confirmation.run();
@@ -520,8 +564,8 @@ function ConfirmDialog({ confirmation, onClose }: { confirmation: Confirmation; 
             {confirmation.action}
           </Button>
         </div>
-      </Dialog>
-    </Dialog.Root>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -529,9 +573,9 @@ function BotDialog({ title, submitLabel, initial, withRole, onSubmit, onClose }:
   const [name, setName] = useState(initial.name);
   const [role, setRole] = useState(initial.role);
   return (
-    <Dialog.Root open onOpenChange={(open: boolean) => { if (!open) onClose(); }}>
-      <Dialog size="sm" className="flex flex-col gap-4 rounded-[28px]! border-0! bg-fb-pane! p-6! [corner-shape:squircle]">
-        <Dialog.Title className="fb-body font-semibold">{title}</Dialog.Title>
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent aria-describedby={undefined}>
+        <DialogTitle>{title}</DialogTitle>
         <form
           className="flex flex-col gap-4"
           onSubmit={(event) => {
@@ -542,12 +586,12 @@ function BotDialog({ title, submitLabel, initial, withRole, onSubmit, onClose }:
           <Input aria-label="Name" placeholder="Name" value={name} autoFocus onChange={(event) => setName(event.target.value)} />
           {withRole ? <Input aria-label="Role" placeholder="Role" value={role} onChange={(event) => setRole(event.target.value)} /> : null}
           <div className="flex justify-end gap-2">
-            <Button type="button" size="sm" variant="secondary" className="rounded-full!" onClick={onClose}>Cancel</Button>
-            <Button type="submit" size="sm" className="rounded-full! bg-fb-me! text-fb-me-text!" disabled={name.trim() === ""}>{submitLabel}</Button>
+            <Button type="button" size="sm" variant="secondary" onClick={onClose}>Cancel</Button>
+            <Button type="submit" size="sm" disabled={name.trim() === ""}>{submitLabel}</Button>
           </div>
         </form>
-      </Dialog>
-    </Dialog.Root>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -557,9 +601,9 @@ function NewGroup({ bots, onCreate, onClose }: { bots: BotSummary[]; onCreate: (
   const valid = selected.length >= minGroupBots && selected.length <= maxGroupBots;
   const toggle = (id: string) => setSelected(selected.includes(id) ? selected.filter((candidate) => candidate !== id) : [...selected, id]);
   return (
-    <Dialog.Root open onOpenChange={(open: boolean) => { if (!open) onClose(); }}>
-      <Dialog size="sm" className="flex flex-col gap-4 rounded-[28px]! border-0! bg-fb-pane! p-6! [corner-shape:squircle]">
-        <Dialog.Title className="fb-body font-semibold">New group</Dialog.Title>
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent aria-describedby={undefined}>
+        <DialogTitle>New group</DialogTitle>
         <form
           className="flex flex-col gap-4"
           onSubmit={(event) => {
@@ -584,12 +628,12 @@ function NewGroup({ bots, onCreate, onClose }: { bots: BotSummary[]; onCreate: (
             ))}
           </div>
           <div className="flex justify-end gap-2">
-            <Button type="button" size="sm" variant="secondary" className="rounded-full!" onClick={onClose}>Cancel</Button>
-            <Button type="submit" size="sm" className="rounded-full! bg-fb-me! text-fb-me-text!" disabled={!valid}>Create</Button>
+            <Button type="button" size="sm" variant="secondary" onClick={onClose}>Cancel</Button>
+            <Button type="submit" size="sm" disabled={!valid}>Create</Button>
           </div>
         </form>
-      </Dialog>
-    </Dialog.Root>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -621,6 +665,8 @@ function Workspace() {
   const [renamingGroup, setRenamingGroup] = useState<GroupSummary | null>(null);
   const [renamingThread, setRenamingThread] = useState<ThreadSummary | null>(null);
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
+  const [sidebarWidthPx, setSidebarWidthPx] = useState(sidebarWidth);
+  const [resizingSidebar, setResizingSidebar] = useState(false);
   const [factory, setFactory] = useState(() => new URLSearchParams(window.location.search).get("view") === "3d");
   const mobile = useIsMobile();
   const [mobileChat, setMobileChat] = useState(false);
@@ -642,8 +688,8 @@ function Workspace() {
     const openTarget = (url: URL) => {
       const connected = url.searchParams.get("connected");
       const connectError = url.searchParams.get("connectError");
-      if (connected !== null) toasts.add({ title: `${connected} connected` });
-      if (connectError !== null) toasts.add({ title: "Sign-in failed", description: connectError, variant: "error" });
+      if (connected !== null) toast(`${connected} connected`);
+      if (connectError !== null) toast.error("Sign-in failed", { description: connectError });
       if (connected !== null || connectError !== null) window.history.replaceState(null, "", "/");
       const bot = url.searchParams.get("bot");
       const group = url.searchParams.get("group");
@@ -671,7 +717,7 @@ function Workspace() {
     const now = Date.now();
     if (message === lastError.current.message && now - lastError.current.at < repeatErrorMs) return;
     lastError.current = { message, at: now };
-    toasts.add({ title: "Something went wrong", description: message, variant: "error" });
+    toast.error("Something went wrong", { description: message });
   }, []);
 
   const guard = useCallback(async <T,>(work: () => Promise<T>): Promise<T | undefined> => {
@@ -809,7 +855,7 @@ function Workspace() {
   const addToPool = async (work: () => Promise<{ name: string }>): Promise<boolean> => {
     const added = await guard(work);
     if (added === undefined) return false;
-    toasts.add({ title: `${added.name} added` });
+    toast(`${added.name} added`);
     await loadPool();
     return true;
   };
@@ -833,7 +879,7 @@ function Workspace() {
   const addMcp = async (input: { name: string; url: string; token: string }): Promise<boolean> => {
     const added = await guard(() => api.addMcpServer(input));
     if (added === undefined) return false;
-    toasts.add({ title: `${added.server.name} connected`, description: `${added.tools} tools` });
+    toast(`${added.server.name} connected`, { description: `${added.tools} tools` });
     await loadMcp();
     return true;
   };
@@ -847,7 +893,7 @@ function Workspace() {
     const serverId = entry.serverId ?? (await guard(() => api.addApp(entry.id, token)))?.server.id;
     if (serverId === undefined) return;
     if (entry.auth === "none" || entry.auth === "apikey") {
-      toasts.add({ title: `${entry.name} added` });
+      toast(`${entry.name} added`);
       await Promise.all([loadMcp(), openLibrary()]);
       return;
     }
@@ -1091,12 +1137,12 @@ function Workspace() {
                   <RoutinesSection
                     routines={shown.routines}
                     onRun={(routineId) => currentId !== null && void guard(() => api.runRoutine(currentId, routineId)).then((result) => {
-                      if (result !== undefined) toasts.add({ title: `${result.routine.title} started` });
+                      if (result !== undefined) toast(`${result.routine.title} started`);
                       return loadView(currentId, threadId);
                     })}
                     onPause={(routine) => currentId !== null && void guard(() => api.updateRoutine(currentId, routine.id, { paused: !routine.paused })).then(() => loadView(currentId, threadId))}
                     onDelete={(routine) => currentId !== null && setConfirmation({ title: `Delete ${routine.title}?`, action: "Delete", run: () => void guard(() => api.deleteRoutine(currentId, routine.id)).then(() => loadView(currentId, threadId)) })}
-                    onCopyHook={(routine) => void navigator.clipboard.writeText(`${window.location.origin}${routine.hookPath}`).then(() => toasts.add({ title: "Webhook copied" }))}
+                    onCopyHook={(routine) => void navigator.clipboard.writeText(`${window.location.origin}${routine.hookPath}`).then(() => toast("Webhook copied"))}
                   />
                   <TrustSection
                     askFirst={shown.askFirst}
@@ -1255,8 +1301,12 @@ function Workspace() {
   }
 
   return (
-    <Sidebar.Provider defaultOpen collapsible="offcanvas" resizable defaultWidth={sidebarWidth} minWidth={224} maxWidth={420} className="h-svh min-h-0!">
-      <BotList {...listProps} />
+    <SidebarProvider
+      defaultOpen
+      style={{ "--sidebar-width": `${sidebarWidthPx}px` } as CSSProperties}
+      className={`h-svh min-h-0 ${resizingSidebar ? "select-none [&_[data-slot=sidebar-container]]:transition-none [&_[data-slot=sidebar-gap]]:transition-none" : ""}`}
+    >
+      <BotList {...listProps} onResize={setSidebarWidthPx} onResizing={setResizingSidebar} />
       <div className="relative flex min-w-0 flex-1 overflow-hidden bg-fb-pane">
         <div className="flex min-w-0 flex-1 flex-col">
           {desktopHeader}
@@ -1276,7 +1326,7 @@ function Workspace() {
         {panelView}
       </div>
       {overlays}
-    </Sidebar.Provider>
+    </SidebarProvider>
   );
 }
 
@@ -1291,8 +1341,9 @@ export function App() {
   if (!signedIn) return <SignIn />;
   if (window.location.pathname === "/connect-mac") return <ConnectMac />;
   return (
-    <Toasty toastManager={toasts}>
+    <>
       <Workspace />
-    </Toasty>
+      <Toaster position="bottom-right" />
+    </>
   );
 }

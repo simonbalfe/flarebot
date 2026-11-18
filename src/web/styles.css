@@ -1,6 +1,8 @@
-@source "../../node_modules/@cloudflare/kumo/dist/**/*.{js,jsx,ts,tsx}";
-@import "@cloudflare/kumo/styles";
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:where([data-mode="dark"], [data-mode="dark"] *));
 
 @theme {
   --color-fb-sidebar: light-dark(#fafafa, #151514);
@@ -25,29 +27,59 @@
   --color-fb-factory-sky: #fbad41;
   --color-fb-factory-ink: #7a3e0a;
 
-  --color-kumo-canvas: var(--color-fb-pane);
-  --color-kumo-base: var(--color-fb-pane);
-  --color-kumo-elevated: var(--color-fb-pane);
-  --color-kumo-recessed: var(--color-fb-sidebar);
-  --color-kumo-tint: var(--color-fb-active);
-  --color-kumo-control: var(--color-fb-field);
-  --color-kumo-interact: var(--color-fb-active);
-  --color-kumo-contrast: var(--color-fb-me);
-  --color-kumo-brand: var(--color-fb-me);
-  --color-kumo-brand-hover: var(--color-fb-me);
-  --color-kumo-line: var(--color-fb-line);
-  --color-kumo-hairline: var(--color-fb-line);
-  --color-kumo-focus: var(--color-fb-faint);
-  --text-color-kumo-default: var(--color-fb-text);
-  --text-color-kumo-strong: var(--color-fb-text);
-  --text-color-kumo-subtle: var(--color-fb-preview);
-  --text-color-kumo-placeholder: var(--color-fb-faint);
-  --text-color-kumo-inverse: var(--color-fb-me-text);
+  --color-fb-danger: light-dark(oklch(63.7% 0.237 25.331), oklch(57.7% 0.245 27.325));
+  --color-fb-danger-text: light-dark(oklch(50.5% 0.213 27.518), oklch(70.4% 0.191 22.216));
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Roboto", "Helvetica Neue", "Segoe UI", sans-serif;
+  --font-heading: var(--font-sans);
+}
+
+@theme inline {
+  --color-background: var(--color-fb-pane);
+  --color-foreground: var(--color-fb-text);
+  --color-card: var(--color-fb-pane);
+  --color-card-foreground: var(--color-fb-text);
+  --color-popover: var(--color-fb-pane);
+  --color-popover-foreground: var(--color-fb-text);
+  --color-primary: var(--color-fb-me);
+  --color-primary-foreground: var(--color-fb-me-text);
+  --color-secondary: var(--color-fb-field);
+  --color-secondary-foreground: var(--color-fb-text);
+  --color-muted: var(--color-fb-active);
+  --color-muted-foreground: var(--color-fb-preview);
+  --color-accent: var(--color-fb-active);
+  --color-accent-foreground: var(--color-fb-text);
+  --color-destructive: var(--color-fb-danger);
+  --color-border: var(--color-fb-line);
+  --color-input: var(--color-fb-field-line);
+  --color-ring: var(--color-fb-faint);
+  --color-sidebar: var(--color-fb-sidebar);
+  --color-sidebar-foreground: var(--color-fb-side-text);
+  --color-sidebar-primary: var(--color-fb-me);
+  --color-sidebar-primary-foreground: var(--color-fb-me-text);
+  --color-sidebar-accent: var(--color-fb-active);
+  --color-sidebar-accent-foreground: var(--color-fb-text);
+  --color-sidebar-border: var(--color-fb-line);
+  --color-sidebar-ring: var(--color-fb-faint);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+  --radius: 0.625rem;
+  color-scheme: light;
+}
+
+[data-mode="dark"] {
+  color-scheme: dark;
 }
 
 body {
-  @apply overflow-hidden bg-fb-pane text-fb-text antialiased;
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Roboto", "Helvetica Neue", "Segoe UI", sans-serif;
+  @apply overflow-hidden bg-fb-pane font-sans text-fb-text antialiased;
   text-rendering: optimizeLegibility;
   overscroll-behavior: none;
   -webkit-tap-highlight-color: transparent;
@@ -210,5 +242,15 @@ body {
   .fb-prose td code,
   .fb-prose th code {
     @apply whitespace-nowrap;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
   }
 }

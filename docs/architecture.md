@@ -60,7 +60,7 @@ Bubbles cross only through messages: `message_bot`, the replies it triggers, and
 
 ## Desktop app
 
-`src-tauri/` is a Tauri 2 shell around the same React and Kumo UI. It adds no UI code, so the interface is identical to the web app.
+`src-tauri/` is a Tauri 2 shell around the same React and shadcn/ui UI. It adds no UI code, so the interface is identical to the web app.
 
 - The window loads the deployed app URL, so `/api`, cookies, sign-in and the live browser view behave as they do in a browser, with no CORS or cookie changes.
 - `bun run tauri:dev` opens a window on the deployed app, so it shows the live Bots, memory and Mac link. No local dev server is needed. Worker changes reach it only after `scripts/deploy.sh`, because local dev can't bind Durable Objects or containers to the deployed ones.

@@ -1,4 +1,5 @@
-import { Button, Input } from "@cloudflare/kumo";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { useState } from "react";
 import { authClient } from "./auth";
 import { Avatar } from "./Avatar";
@@ -6,7 +7,7 @@ import { Avatar } from "./Avatar";
 type Step = { kind: "email"; error: string | null } | { kind: "sending" } | { kind: "code"; error: string | null } | { kind: "verifying" };
 
 const codeLength = 6;
-const primaryButton = "w-full justify-center! rounded-full! bg-fb-me! text-fb-me-text! disabled:bg-fb-me! disabled:text-fb-me-text! disabled:opacity-60!";
+const primaryButton = "w-full disabled:opacity-60";
 
 export function SignIn() {
   const [email, setEmail] = useState("");
@@ -64,7 +65,7 @@ export function SignIn() {
               value={code}
               disabled={step.kind === "verifying"}
               onChange={(event) => onCode(event.target.value)}
-              className="w-full rounded-full! px-4! text-center! font-mono! tracking-[0.4em]!"
+              className="rounded-full px-4 text-center font-mono tracking-[0.4em]"
             />
             <Button type="submit" className={primaryButton} disabled={step.kind === "verifying" || code.length !== codeLength}>{step.kind === "verifying" ? "Signing in…" : "Sign in"}</Button>
             {step.kind === "code" && step.error !== null ? <p role="alert" className="fb-caption text-center text-fb-preview">{step.error}</p> : null}
@@ -78,7 +79,7 @@ export function SignIn() {
               void sendCode();
             }}
           >
-            <Input aria-label="Email" type="email" placeholder="Email" autoComplete="email" required autoFocus value={email} onChange={(event) => setEmail(event.target.value)} className="w-full rounded-full! px-4!" />
+            <Input aria-label="Email" type="email" placeholder="Email" autoComplete="email" required autoFocus value={email} onChange={(event) => setEmail(event.target.value)} className="rounded-full px-4" />
             <Button type="submit" className={primaryButton} disabled={step.kind === "sending"}>{step.kind === "sending" ? "Sending…" : "Send code"}</Button>
             {step.kind === "email" && step.error !== null ? <p role="alert" className="fb-caption text-center text-fb-preview">{step.error}</p> : null}
           </form>

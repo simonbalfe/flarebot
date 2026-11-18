@@ -1,4 +1,5 @@
-import { Button, Collapsible } from "@cloudflare/kumo";
+import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { ArrowBendUpRightIcon, CaretRightIcon, ClockClockwiseIcon, HandPalmIcon, RobotIcon } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
@@ -57,17 +58,17 @@ export function MyBubble({ text, mentions = [] }: { text: string; mentions?: Men
 function ToolCalls({ tools, live }: { tools: ToolItem[]; live: boolean }) {
   const [open, setOpen] = useState(false);
   return (
-    <Collapsible.Root open={open} onOpenChange={setOpen} className="flex flex-col items-center">
-      <Collapsible.Trigger className={`${systemLine} cursor-pointer hover:text-fb-text ${live ? "animate-pulse" : ""}`}>
+    <Collapsible open={open} onOpenChange={setOpen} className="flex flex-col items-center">
+      <CollapsibleTrigger className={`${systemLine} cursor-pointer hover:text-fb-text ${live ? "animate-pulse" : ""}`}>
         {toolsLabel(tools)}
         <CaretRightIcon size={10} className={open ? "rotate-90 transition-transform" : "transition-transform"} />
-      </Collapsible.Trigger>
-      <Collapsible.Panel className="mb-1 flex max-w-full flex-col gap-1 rounded-[10px] bg-fb-bot px-3 py-2">
+      </CollapsibleTrigger>
+      <CollapsibleContent className="mb-1 flex max-w-full flex-col gap-1 rounded-[10px] bg-fb-bot px-3 py-2">
         {tools.map((tool) => (
           <code key={tool.id} className="break-all font-mono text-xs text-fb-preview">{tool.name} {tool.detail}</code>
         ))}
-      </Collapsible.Panel>
-    </Collapsible.Root>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 
@@ -183,13 +184,13 @@ export function Transcript({ view, bots, pending, onTakeOver, cards }: { view: B
             </span>
             <span className="text-[15px] font-semibold leading-5">{view.takeover.site}</span>
             <span>{view.takeover.reason}</span>
-            <Button size="sm" className="mt-1 w-fit rounded-full! bg-fb-action! font-semibold! text-fb-action-text!" onClick={onTakeOver}>Open computer</Button>
+            <Button size="sm" variant="action" className="mt-1 w-fit" onClick={onTakeOver}>Open computer</Button>
           </div>
         )}
         {view.approvals.map((approval) => <ApprovalCard key={approval.id} approval={approval} onDecide={(decision) => cards.onDecide(approval.id, decision)} />)}
         {view.secretRequests.map((request) => <SecretCard key={request.id} request={request} onSubmit={(value) => cards.onSubmitSecret(request.id, value)} onDismiss={() => cards.onDismissSecret(request.id)} />)}
         {view.connectionRequests.map((request) => <ConnectCard key={request.id} request={request} onConnect={() => cards.onConnect(request.serverId, request.id)} onDismiss={() => cards.onDismissConnection(request.id)} />)}
-        {view.error === null ? null : <div className="px-3 text-xs leading-4 text-kumo-danger [overflow-wrap:anywhere]">{view.error}</div>}
+        {view.error === null ? null : <div className="px-3 text-xs leading-4 text-fb-danger-text [overflow-wrap:anywhere]">{view.error}</div>}
         <div ref={bottom} />
       </div>
     </div>

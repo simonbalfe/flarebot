@@ -4,7 +4,7 @@ import type { RoutineSummary } from "./api";
 import { formatListTime } from "./format";
 
 const iconButton = "grid size-9 cursor-pointer place-items-center rounded-full text-fb-preview hover:bg-fb-active hover:text-fb-text md:size-7";
-const statusColor = { running: "bg-fb-action", succeeded: "bg-green-500", failed: "bg-kumo-danger", skipped: "bg-fb-faint" } as const;
+const statusColor = { running: "bg-fb-action", succeeded: "bg-green-500", failed: "bg-fb-danger", skipped: "bg-fb-faint" } as const;
 
 function nextLabel(routine: RoutineSummary): string {
   if (routine.paused) return "Paused";

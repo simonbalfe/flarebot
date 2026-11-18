@@ -48,7 +48,8 @@ Run both checks after every code change. Docker or OrbStack must be running for 
 | `public/` | PWA manifest, icons and service worker |
 | `migrations/` | D1 schema for Better Auth |
 | `src/web/` | React UI |
-| `src/web/styles.css` | Design tokens and Kumo theme overrides |
+| `src/web/styles.css` | Design tokens, with the shadcn theme variables mapped to the `fb-*` tokens |
+| `src/web/components/ui/` | shadcn/ui components, added with the shadcn CLI (`components.json`) and restyled to the `fb-*` look |
 | `computer/` | Desktop image, cookie loader, and `browser-tab.mjs` (CDP tab control, sent by the Worker at run time) |
 | `src-tauri/` | Tauri 2 shell around the same web UI for the Mac only: `tauri.conf.json` plus the `tauri.macos.conf.json` override, `src/lib.rs` (entry point), `src/desktop.rs` (starts and stops the bundled `flarebot-local` daemon, hides the window on close), and icons. Crate and CLI pins are exact |
 | `capacitor.config.ts`, `android/`, `ios/` | Capacitor shells for the Android and iPhone apps, loading the deployed URL. The native projects are committed and edited by hand; `cap sync` only rewrites the gitignored web copy and config |
@@ -63,7 +64,7 @@ Run both checks after every code change. Docker or OrbStack must be running for 
 - Never edit `worker-configuration.d.ts`. Run `bun run types` after changing `wrangler.jsonc`.
 
 **UI**
-- Use Tailwind and Kumo, with the `fb-*` tokens in `src/web/styles.css`.
+- Use Tailwind and shadcn/ui, with the `fb-*` tokens in `src/web/styles.css`. Add components with `bunx shadcn@4.23.0 add <name>`.
 - Use the `fb-body`, `fb-callout` and `fb-caption` type styles.
 - Add no explanatory copy to the UI: labels, data and error messages only.
 - Never show costs. The API tracks them in the background.
